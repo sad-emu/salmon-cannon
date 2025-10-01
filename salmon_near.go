@@ -10,6 +10,7 @@ type SalmonNear struct {
 	farPort        int
 	conn           net.Conn
 	allowedBridges []BridgeType // acceptable bridges in order of preference
+	bridgeType     BridgeType
 }
 
 func NewSalmonNear(farIP string, farPort int, allowedBridges []BridgeType) (*SalmonNear, error) {
@@ -23,6 +24,7 @@ func NewSalmonNear(farIP string, farPort int, allowedBridges []BridgeType) (*Sal
 		farPort:        farPort,
 		conn:           conn,
 		allowedBridges: allowedBridges,
+		bridgeType:     BridgeNone, // Default to none
 	}
 	// Request available bridges from far
 	if err := near.configureBridges(); err != nil {
@@ -59,5 +61,35 @@ func (n *SalmonNear) configureBridges() error {
 		fmt.Printf("%d ", b)
 	}
 	fmt.Println()
+
+	// Find the first allowed bridge present in the available bridges
+	for _, allowed := range n.allowedBridges {
+		for _, avail := range bridges {
+			if byte(allowed) == avail {
+				n.bridgeType = allowed
+				// Found a match
+				fmt.Printf("Selected bridge: %d\n", allowed)
+			}
+		}
+	}
+	if n.bridgeType == BridgeNone {
+		// Format allowed and available bridges for error message
+		allowedStr := ""
+		for i, b := range n.allowedBridges {
+			if i > 0 {
+				allowedStr += ", "
+			}
+			allowedStr += fmt.Sprintf("%d", b)
+		}
+		availStr := ""
+		for i, b := range bridges {
+			if i > 0 {
+				availStr += ", "
+			}
+			availStr += fmt.Sprintf("%d", b)
+		}
+		return fmt.Errorf("no allowed bridge found. allowed: [%s], available: [%s]", allowedStr, availStr)
+	}
+
 	return nil
 }
