@@ -21,7 +21,7 @@ func TestSalmonNearFarBridgeRequest(t *testing.T) {
 	port := far.ln.Addr().(*net.TCPAddr).Port
 
 	// Start SalmonNear and connect to far
-	near, err := NewSalmonNear("127.0.0.1", port)
+	near, err := NewSalmonNear("127.0.0.1", port, []BridgeType{BridgeTCP, BridgeQUIC})
 	if err != nil {
 		t.Fatalf("failed to start SalmonNear: %v", err)
 	}

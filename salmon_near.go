@@ -6,31 +6,33 @@ import (
 )
 
 type SalmonNear struct {
-	farIP   string
-	farPort int
-	conn    net.Conn
+	farIP          string
+	farPort        int
+	conn           net.Conn
+	allowedBridges []BridgeType // acceptable bridges in order of preference
 }
 
-func NewSalmonNear(farIP string, farPort int) (*SalmonNear, error) {
+func NewSalmonNear(farIP string, farPort int, allowedBridges []BridgeType) (*SalmonNear, error) {
 	addr := fmt.Sprintf("%s:%d", farIP, farPort)
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
 		return nil, err
 	}
 	near := &SalmonNear{
-		farIP:   farIP,
-		farPort: farPort,
-		conn:    conn,
+		farIP:          farIP,
+		farPort:        farPort,
+		conn:           conn,
+		allowedBridges: allowedBridges,
 	}
 	// Request available bridges from far
-	if err := near.requestBridges(); err != nil {
+	if err := near.configureBridges(); err != nil {
 		conn.Close()
 		return nil, err
 	}
 	return near, nil
 }
 
-func (n *SalmonNear) requestBridges() error {
+func (n *SalmonNear) configureBridges() error {
 	// Send a simple handshake/request
 	_, err := n.conn.Write([]byte{HeaderRequestBridges})
 	if err != nil {
@@ -44,7 +46,7 @@ func (n *SalmonNear) requestBridges() error {
 	if nRead < 3 {
 		return fmt.Errorf("response too short")
 	}
-	if buf[0] != HeaderRequestBridges {
+	if buf[0] != HeaderResponseBridges {
 		return fmt.Errorf("unexpected header: got 0x%02x", buf[0])
 	}
 	length := int(buf[1])

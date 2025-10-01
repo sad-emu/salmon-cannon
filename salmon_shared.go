@@ -1,9 +1,10 @@
 package main
 
 const (
-	HeaderRequestBridges     byte = 0x01
-	HeaderRequestBridgesResp byte = 0x02
-	HeaderData               byte = 0x03
+	HeaderRequestBridges   byte = 0x01
+	HeaderResponseBridges  byte = 0x02
+	HeaderRequestUseBridge byte = 0x03
+	HeaderData             byte = 0x04
 )
 
 type BridgeType byte

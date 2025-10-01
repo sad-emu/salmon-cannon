@@ -36,7 +36,7 @@ func (f *SalmonFar) acceptLoop() {
 func (f *SalmonFar) buildBridgeResponse() []byte {
 	bridges := []byte{byte(BridgeTCP), byte(BridgeQUIC)}
 	pkt := make([]byte, 0, 2+len(bridges))
-	pkt = append(pkt, HeaderRequestBridges)
+	pkt = append(pkt, HeaderResponseBridges)
 	pkt = append(pkt, 0)
 	pkt = append(pkt, bridges...)
 	pkt[1] = byte(len(bridges))
@@ -53,5 +53,8 @@ func (f *SalmonFar) handleConn(conn net.Conn) {
 	msg := buf[:n]
 	if len(msg) == 1 && msg[0] == HeaderRequestBridges {
 		conn.Write(f.buildBridgeResponse())
+	} else if len(msg) > 1 && msg[0] == HeaderData {
+		// Handle data packets (not implemented in this example)
+		fmt.Printf("Received data packet of length %d\n", len(msg)-1)
 	}
 }
