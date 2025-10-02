@@ -6,7 +6,7 @@ import (
 )
 
 // Bridge abstracts forwarding traffic to a remote or local endpoint.
-type Bridge interface {
+type SalmonBridge interface {
 	// ForwardTCP forwards a TCP connection to the far endpoint.
 	ForwardTCP(ctx context.Context, src net.Conn, destAddr string) error
 

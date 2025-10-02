@@ -11,6 +11,9 @@ type SalmonFar struct {
 	allowedBridges []BridgeType // acceptable bridges in order of preference
 }
 
+// TODO - for bridge types it should start listeners for them
+// near should be able to make requests through them
+
 func NewSalmonFar(port int, allowedBridges []BridgeType) (*SalmonFar, error) {
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
@@ -31,7 +34,7 @@ func (f *SalmonFar) acceptLoop() {
 		if err != nil {
 			return
 		}
-		go f.handleConn(conn)
+		go f.handleMetadataConn(conn)
 	}
 }
 
@@ -48,13 +51,11 @@ func (f *SalmonFar) buildBridgeResponse() []byte {
 	return pkt
 }
 
-func (f *SalmonFar) handleConn(conn net.Conn) {
+// Function to handle metadata requests so SalmonNear understand available bridges
+func (f *SalmonFar) handleMetadataConn(conn net.Conn) {
 	defer conn.Close()
 
-	var remoteAddr string
-	var remotePort string
-
-	buf := make([]byte, 64000)
+	buf := make([]byte, 256)
 	n, err := conn.Read(buf)
 	if err != nil {
 		return
@@ -62,40 +63,6 @@ func (f *SalmonFar) handleConn(conn net.Conn) {
 	msg := buf[:n]
 	if len(msg) == 1 && msg[0] == HeaderRequestBridges {
 		conn.Write(f.buildBridgeResponse())
-	} else if len(msg) > 1 && msg[0] == HeaderMeta {
-		remoteAddr, remotePort, err := parseMetaPacket(msg)
-		if err != nil {
-			fmt.Println("HeaderMeta error:", err)
-			return
-		}
-		fmt.Printf("Received meta: url=%s, port=%s\n", remoteAddr, remotePort)
-	} else if len(msg) > 1 && msg[0] == HeaderData {
-		// Connect to remoteAddr:remotePort and forward data
-		if remoteAddr == "" || remotePort == "" {
-			fmt.Fprintln(conn, "remoteAddr/remotePort not set via meta packet")
-			return
-		}
-		target := net.JoinHostPort(remoteAddr, remotePort)
-		dst, err := net.Dial("tcp", target)
-		if err != nil {
-			fmt.Fprintf(conn, "failed to connect to %s: %v\n", target, err)
-			return
-		}
-		defer dst.Close()
-		// Send the data (excluding the first byte)
-		_, err = dst.Write(msg[1:])
-		if err != nil {
-			fmt.Fprintf(conn, "failed to write to remote: %v\n", err)
-			return
-		}
-		// Read response from remote and send back to conn
-		buf := make([]byte, 4096)
-		n, err := dst.Read(buf)
-		if err != nil {
-			fmt.Fprintf(conn, "failed to read from remote: %v\n", err)
-			return
-		}
-		conn.Write(buf[:n])
 	}
 }
 

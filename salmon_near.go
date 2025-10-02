@@ -34,6 +34,18 @@ func NewSalmonNear(farIP string, farPort int, allowedBridges []BridgeType) (*Sal
 	return near, nil
 }
 
+func (n *SalmonNear) Connect() error {
+	switch n.bridgeType {
+	case BridgeTCP:
+
+	case BridgeQUIC:
+		return fmt.Errorf("QUIC bridge not implemented yet")
+	default:
+		return fmt.Errorf("no compatible bridge found")
+	}
+
+}
+
 func (n *SalmonNear) configureBridges() error {
 	// Send a simple handshake/request
 	_, err := n.conn.Write([]byte{HeaderRequestBridges})
