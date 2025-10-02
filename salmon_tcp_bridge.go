@@ -116,7 +116,17 @@ func (b *SalmonTcpBridge) ForwardTCP(ctx context.Context, data SalmonTCPPacket) 
 	}
 	select {
 	case resp := <-req.respChan:
-		return resp, nil
+		data, err := DeserializeSalmonTCPPacket(resp)
+		// print len of response
+		print("Response length: ")
+		println(len(data.Data))
+		print("Got response")
+		if err != nil {
+			print("Got error deserializing response")
+			println(err.Error())
+			return nil, err
+		}
+		return data.Data, nil
 	case err := <-req.errChan:
 		return nil, err
 	case <-ctx.Done():
@@ -147,8 +157,8 @@ func (b *SalmonTcpBridge) sender() {
 			req.errChan <- err
 			continue
 		}
-		// Read response (simple protocol: read up to 4096 bytes)
-		buf := make([]byte, 4096)
+		// Read response (simple protocol: read up to 65535 bytes)
+		buf := make([]byte, 65535)
 		n, err := conn.Read(buf)
 		if err != nil {
 			req.errChan <- err
@@ -175,21 +185,21 @@ func (b *SalmonTcpBridge) Close() error {
 }
 
 // Listen accepts incoming connections and handles requests from remote bridges.
-func (b *SalmonTcpBridge) Listen(listener net.Listener, handler func([]byte) ([]byte, error)) error {
+func (b *SalmonTcpBridge) Listen(listener net.Listener) error {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			return err
 		}
-		go b.handleIncoming(conn, handler)
+		go b.handleIncoming(conn)
 	}
 }
 
 // handleIncoming reads a request, processes it, and writes the response.
-func (b *SalmonTcpBridge) handleIncoming(conn net.Conn, handler func([]byte) ([]byte, error)) {
+func (b *SalmonTcpBridge) handleIncoming(conn net.Conn) {
 	defer conn.Close()
 	for {
-		buf := make([]byte, 4096)
+		buf := make([]byte, 65535)
 		n, err := conn.Read(buf)
 		if err != nil {
 			return
@@ -214,8 +224,10 @@ func (b *SalmonTcpBridge) handleIncoming(conn net.Conn, handler func([]byte) ([]
 			return
 		}
 		// Read response from remote
-		respBuf := make([]byte, 4096)
+		respBuf := make([]byte, 65535)
 		respN, err := remoteConn.Read(respBuf)
+		print("Length of response from remote: ")
+		println(respN)
 		remoteConn.Close()
 		if err != nil && respN == 0 {
 			conn.Write([]byte("error: " + err.Error()))
