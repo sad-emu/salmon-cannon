@@ -37,7 +37,7 @@ func NewSalmonNear(farIP string, farPort int, allowedBridges []BridgeType) (*Sal
 func (n *SalmonNear) Connect() error {
 	switch n.bridgeType {
 	case BridgeTCP:
-
+		return nil
 	case BridgeQUIC:
 		return fmt.Errorf("QUIC bridge not implemented yet")
 	default:

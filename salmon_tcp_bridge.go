@@ -195,13 +195,43 @@ func (b *SalmonTcpBridge) handleIncoming(conn net.Conn, handler func([]byte) ([]
 			return
 		}
 		req := buf[:n]
-		resp, err := handler(req)
+		pkt, err := DeserializeSalmonTCPPacket(req)
 		if err != nil {
-			// Optionally send error message back
 			conn.Write([]byte("error: " + err.Error()))
 			return
 		}
-		_, err = conn.Write(resp)
+		// Make the TCP connection using the info provided
+		remoteAddr := net.JoinHostPort(pkt.RemoteAddr, fmt.Sprintf("%d", pkt.remotePort))
+		remoteConn, err := net.Dial("tcp", remoteAddr)
+		if err != nil {
+			conn.Write([]byte("error: " + err.Error()))
+			return
+		}
+		_, err = remoteConn.Write(pkt.Data)
+		if err != nil {
+			remoteConn.Close()
+			conn.Write([]byte("error: " + err.Error()))
+			return
+		}
+		// Read response from remote
+		respBuf := make([]byte, 4096)
+		respN, err := remoteConn.Read(respBuf)
+		remoteConn.Close()
+		if err != nil && respN == 0 {
+			conn.Write([]byte("error: " + err.Error()))
+			return
+		}
+		respPkt := SalmonTCPPacket{
+			RemoteAddr: pkt.RemoteAddr,
+			remotePort: pkt.remotePort,
+			Data:       respBuf[:respN],
+		}
+		respBytes, err := SerializeSalmonTCPPacket(respPkt)
+		if err != nil {
+			conn.Write([]byte("error: " + err.Error()))
+			return
+		}
+		_, err = conn.Write(respBytes)
 		if err != nil {
 			return
 		}
