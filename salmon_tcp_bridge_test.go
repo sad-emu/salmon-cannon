@@ -63,13 +63,13 @@ func TestSalmonTcpBridge_HttpRequest(t *testing.T) {
 	}
 	defer listener.Close()
 
-	bridgeServer := &SalmonTcpBridge{}
+	bridgeServer := &SalmonTCPBridge{}
 	go func() {
 		bridgeServer.Listen(listener)
 
 	}()
 
-	bridgeClient := &SalmonTcpBridge{}
+	bridgeClient := &SalmonTCPBridge{}
 	err = bridgeClient.Connect(listener.Addr().String())
 	if err != nil {
 		t.Fatalf("Connect failed: %v", err)
@@ -77,8 +77,8 @@ func TestSalmonTcpBridge_HttpRequest(t *testing.T) {
 	defer bridgeClient.Close()
 
 	pkt := SalmonTCPPacket{
-		RemoteAddr: "146.190.62.39",
-		remotePort: 80,
+		RemoteAddr: "httpforever.com",
+		RemotePort: 80,
 		Data:       []byte("GET / HTTP/1.0\r\nHost: httpforever.com\r\n\r\n"),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -93,3 +93,44 @@ func TestSalmonTcpBridge_HttpRequest(t *testing.T) {
 		t.Errorf("expected HTTP response, got %q", string(resp))
 	}
 }
+
+// func TestSalmonTcpBridge_HttpsRequest(t *testing.T) {
+// 	listener, err := net.Listen("tcp", "127.0.0.1:0")
+// 	if err != nil {
+// 		t.Fatalf("failed to listen: %v", err)
+// 	}
+// 	defer listener.Close()
+
+// 	bridgeServer := &SalmonTcpBridge{}
+// 	go func() {
+// 		bridgeServer.Listen(listener)
+// 	}()
+
+// 	bridgeClient := &SalmonTcpBridge{}
+// 	err = bridgeClient.Connect(listener.Addr().String())
+// 	if err != nil {
+// 		t.Fatalf("Connect failed: %v", err)
+// 	}
+// 	defer bridgeClient.Close()
+
+// 	pkt := SalmonTCPPacket{
+// 		RemoteAddr: "google.com",
+// 		RemotePort: 443,
+// 		Data:       []byte("GET / HTTP/1.0\r\nHost: google.com\r\n\r\n"),
+// 	}
+// 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+// 	defer cancel()
+// 	resp, err := bridgeClient.ForwardTCP(ctx, pkt)
+// 	print("UNITTEST - Response length: ")
+// 	println(len(resp))
+// 	if err != nil {
+// 		t.Fatalf("ForwardTCP failed: %v", err)
+// 	}
+// 	respPkt, err := DeserializeSalmonTCPPacket(resp)
+// 	if err != nil {
+// 		t.Fatalf("DeserializeSalmonTCPPacket failed: %v", err)
+// 	}
+// 	if len(respPkt.Data) == 0 || string(respPkt.Data[:4]) != "HTTP" {
+// 		t.Errorf("expected HTTP response, got %q", string(respPkt.Data))
+// 	}
+// }

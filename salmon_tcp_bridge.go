@@ -23,7 +23,7 @@ func SerializeSalmonTCPPacket(pkt SalmonTCPPacket) ([]byte, error) {
 	out[0] = uint8(len(addrBytes))
 	copy(out[1:], addrBytes)
 	off := 1 + len(addrBytes)
-	binary.BigEndian.PutUint16(out[off:], uint16(pkt.remotePort))
+	binary.BigEndian.PutUint16(out[off:], uint16(pkt.RemotePort))
 	off += 2
 	binary.BigEndian.PutUint16(out[off:], uint16(dataLen))
 	off += 2
@@ -53,14 +53,14 @@ func DeserializeSalmonTCPPacket(data []byte) (SalmonTCPPacket, error) {
 	copy(payload, data[off:off+dlen])
 	return SalmonTCPPacket{
 		RemoteAddr: addr,
-		remotePort: port,
+		RemotePort: port,
 		Data:       payload,
 	}, nil
 }
 
 type SalmonTCPPacket struct {
 	RemoteAddr string
-	remotePort int
+	RemotePort int
 	Data       []byte
 }
 
@@ -70,7 +70,7 @@ type tcpRequest struct {
 	errChan  chan error
 }
 
-type SalmonTcpBridge struct {
+type SalmonTCPBridge struct {
 	conn      net.Conn
 	queue     chan *tcpRequest
 	queueOnce sync.Once
@@ -79,7 +79,7 @@ type SalmonTcpBridge struct {
 }
 
 // Connect establishes a TCP connection to another remote instance.
-func (b *SalmonTcpBridge) Connect(remoteAddr string) error {
+func (b *SalmonTCPBridge) Connect(remoteAddr string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.conn != nil {
@@ -92,12 +92,13 @@ func (b *SalmonTcpBridge) Connect(remoteAddr string) error {
 	b.conn = conn
 	b.queue = make(chan *tcpRequest, 32)
 	b.queueWg.Add(1)
+	print("Bridge connected!")
 	go b.sender()
 	return nil
 }
 
 // ForwardTCP queues data and waits for the TCP response before returning.
-func (b *SalmonTcpBridge) ForwardTCP(ctx context.Context, data SalmonTCPPacket) ([]byte, error) {
+func (b *SalmonTCPBridge) ForwardTCP(ctx context.Context, data SalmonTCPPacket) ([]byte, error) {
 	b.queueOnce.Do(func() {
 		if b.queue == nil {
 			b.queue = make(chan *tcpRequest, 32)
@@ -134,7 +135,7 @@ func (b *SalmonTcpBridge) ForwardTCP(ctx context.Context, data SalmonTCPPacket) 
 	}
 }
 
-func (b *SalmonTcpBridge) sender() {
+func (b *SalmonTCPBridge) sender() {
 	defer b.queueWg.Done()
 	for req := range b.queue {
 		b.mu.Lock()
@@ -169,7 +170,7 @@ func (b *SalmonTcpBridge) sender() {
 }
 
 // Close closes the TCP connection and queue.
-func (b *SalmonTcpBridge) Close() error {
+func (b *SalmonTCPBridge) Close() error {
 	b.mu.Lock()
 	if b.conn != nil {
 		b.conn.Close()
@@ -185,7 +186,7 @@ func (b *SalmonTcpBridge) Close() error {
 }
 
 // Listen accepts incoming connections and handles requests from remote bridges.
-func (b *SalmonTcpBridge) Listen(listener net.Listener) error {
+func (b *SalmonTCPBridge) Listen(listener net.Listener) error {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -196,9 +197,10 @@ func (b *SalmonTcpBridge) Listen(listener net.Listener) error {
 }
 
 // handleIncoming reads a request, processes it, and writes the response.
-func (b *SalmonTcpBridge) handleIncoming(conn net.Conn) {
+func (b *SalmonTCPBridge) handleIncoming(conn net.Conn) {
 	defer conn.Close()
 	for {
+		print("Listener bridge connected!")
 		buf := make([]byte, 65535)
 		n, err := conn.Read(buf)
 		if err != nil {
@@ -211,7 +213,7 @@ func (b *SalmonTcpBridge) handleIncoming(conn net.Conn) {
 			return
 		}
 		// Make the TCP connection using the info provided
-		remoteAddr := net.JoinHostPort(pkt.RemoteAddr, fmt.Sprintf("%d", pkt.remotePort))
+		remoteAddr := net.JoinHostPort(pkt.RemoteAddr, fmt.Sprintf("%d", pkt.RemotePort))
 		remoteConn, err := net.Dial("tcp", remoteAddr)
 		if err != nil {
 			conn.Write([]byte("error: " + err.Error()))
@@ -219,6 +221,8 @@ func (b *SalmonTcpBridge) handleIncoming(conn net.Conn) {
 		}
 		_, err = remoteConn.Write(pkt.Data)
 		if err != nil {
+			print("Error writing to remote: ")
+			println(err.Error())
 			remoteConn.Close()
 			conn.Write([]byte("error: " + err.Error()))
 			return
@@ -235,7 +239,7 @@ func (b *SalmonTcpBridge) handleIncoming(conn net.Conn) {
 		}
 		respPkt := SalmonTCPPacket{
 			RemoteAddr: pkt.RemoteAddr,
-			remotePort: pkt.remotePort,
+			RemotePort: pkt.RemotePort,
 			Data:       respBuf[:respN],
 		}
 		respBytes, err := SerializeSalmonTCPPacket(respPkt)

@@ -29,6 +29,20 @@ func NewSalmonFar(port int, allowedBridges []BridgeType) (*SalmonFar, error) {
 }
 
 func (f *SalmonFar) acceptLoop() {
+	// 1. Start SalmonTCPBridge in a separate goroutine on a different port
+	bridgeListener, err := net.Listen("tcp", "127.0.0.1:1098")
+	if err != nil {
+		fmt.Println("Failed to start SalmonTCPBridge listener:", err)
+		return
+	}
+	go func() {
+		defer bridgeListener.Close()
+		bridgeServer := &SalmonTCPBridge{}
+		// You may want to provide a handler function here if needed
+		bridgeServer.Listen(bridgeListener)
+	}()
+
+	// 2. Listen on the SalmonFar port and pass requests to handleMetadataConn
 	for {
 		conn, err := f.ln.Accept()
 		if err != nil {
