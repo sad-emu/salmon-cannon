@@ -51,6 +51,7 @@ func (n *SalmonNear) Connect() error {
 func (n *SalmonNear) HandleRequest(conn net.Conn) {
 	defer conn.Close()
 	println("New near request 1")
+
 	// 1. Read greeting
 	buf := make([]byte, maxMethods+2)
 	readb, err := conn.Read(buf)
@@ -60,29 +61,30 @@ func (n *SalmonNear) HandleRequest(conn net.Conn) {
 	if buf[0] != socksVersion5 {
 		return // Only SOCKS5
 	}
+
 	// 2. Send handshake response: no auth
 	conn.Write(handshakeNoAuth)
 	println("New near request 2")
+
 	// 3. Read request
 	readb, err = conn.Read(buf)
 	if err != nil || readb < requestMinLen {
 		return
 	}
 	if buf[0] != socksVersion5 {
-		return // Only SOCKS5 supported
+		return
 	}
+
 	println("New near request 3")
-	var host = ""
-	var port = 0
+
+	var host string
+	var port int
 
 	switch buf[1] {
 	case socksCmdConnect:
-		// 4. Parse address
 		switch buf[3] {
 		case socksAddrTypeIPv4:
-			println("socksAddrTypeIPv4")
 			if readb < 4+ipv4Len+portLen {
-				println("RETURNING FROM socksAddrTypeIPv4")
 				return
 			}
 			host = net.IP(buf[4 : 4+ipv4Len]).String()
@@ -91,7 +93,6 @@ func (n *SalmonNear) HandleRequest(conn net.Conn) {
 		case socksAddrTypeDomain:
 			dlen := int(buf[4])
 			if readb < 5+dlen+portLen {
-				println("RETURNING FROM DOMAIN")
 				return
 			}
 			host = string(buf[5 : 5+dlen])
@@ -99,69 +100,62 @@ func (n *SalmonNear) HandleRequest(conn net.Conn) {
 
 		case socksAddrTypeIPv6:
 			if readb < 4+ipv6Len+portLen {
-				println("RETURNING FROM socksAddrTypeIPv6")
 				return
 			}
 			host = net.IP(buf[4 : 4+ipv6Len]).String()
 			port = int(buf[4+ipv6Len])<<8 | int(buf[5+ipv6Len])
 
 		default:
-			println("RETURNING default")
 			return
 		}
 	}
-	// Read data from connection
-	// request := make([]byte, 65536)
-	// nRead, err := conn.Read(request)
-	// println("Building packet for near request")
-	// ctx := context.Background()
-	// pkt := SalmonTCPPacket{
-	// 	RemoteAddr: host,
-	// 	RemotePort: port,
-	// 	Data:       request[:nRead],
-	// }
-	// println("Sending packet for near request")
-	// if err != nil {
-	// 	// Reply: general failure
-	// 	conn.Write(replyFail)
-	// 	return
-	// }
-	println("Replying success for near request")
-	// Reply: success
+
+	// 4. Open a streaming session to far
+	ctx := context.Background()
+	stream, err := n.currentBridge.OpenStream(ctx, host, port)
+	if err != nil {
+		conn.Write(replyFail)
+		return
+	}
+	//defer close(stream.Close())
+
+	// 5. Reply: success
 	conn.Write(replySuccess)
 
-	// Buffer for client reads
-	buf = make([]byte, 65536)
+	// 6. Pump data both ways
 
-	for {
-		// Read from client
-		nRead, err := conn.Read(buf)
-		if err != nil {
-			// Client closed or error
-			return
-		}
-
-		// Build packet
-		pkt := SalmonTCPPacket{
-			RemoteAddr: host,
-			RemotePort: port,
-			Data:       append([]byte(nil), buf[:nRead]...), // copy slice to avoid reuse issues
-		}
-
-		// Forward through bridge
-		ctx := context.Background()
-		resp, err := n.currentBridge.ForwardTCP(ctx, pkt)
-		if err != nil {
-			// Reply: general failure
-			conn.Write(replyFail)
-			return
-		}
-
-		// Send response back to client
-		if len(resp) > 0 {
-			if _, err := conn.Write(resp); err != nil {
+	// Client → Far
+	go func() {
+		buf := make([]byte, 65536)
+		for {
+			nRead, err := conn.Read(buf)
+			if err != nil {
+				// client closed
+				//close(stream.sendCh)
 				return
 			}
+			// Copy chunk (avoid reusing buffer)
+			chunk := append([]byte(nil), buf[:nRead]...)
+			stream.sendCh <- chunk
+		}
+	}()
+
+	// Far → Client
+	for {
+		select {
+		case data, ok := <-stream.recvCh:
+			if !ok {
+				return // far closed
+			}
+			if _, err := conn.Write(data); err != nil {
+				return
+			}
+		// case err := <-stream.Close().Error():
+		// 	if err != nil {
+		// 		return
+		// 	}
+		case <-stream.closed:
+			return
 		}
 	}
 }

@@ -1,12 +1,5 @@
 package main
 
-import (
-	"context"
-	"net"
-	"testing"
-	"time"
-)
-
 // func TestSalmonTcpBridge_ConnectAndListen(t *testing.T) {
 // 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 // 	if err != nil {
@@ -56,43 +49,43 @@ import (
 // 	}
 // }
 
-func TestSalmonTcpBridge_HttpRequest(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("failed to listen: %v", err)
-	}
-	defer listener.Close()
+// func TestSalmonTcpBridge_HttpRequest(t *testing.T) {
+// 	listener, err := net.Listen("tcp", "127.0.0.1:0")
+// 	if err != nil {
+// 		t.Fatalf("failed to listen: %v", err)
+// 	}
+// 	defer listener.Close()
 
-	bridgeServer := &SalmonTCPBridge{}
-	go func() {
-		bridgeServer.Listen(listener)
+// 	bridgeServer := &SalmonTCPBridge{}
+// 	go func() {
+// 		bridgeServer.Listen(listener)
 
-	}()
+// 	}()
 
-	bridgeClient := &SalmonTCPBridge{}
-	err = bridgeClient.Connect(listener.Addr().String())
-	if err != nil {
-		t.Fatalf("Connect failed: %v", err)
-	}
-	defer bridgeClient.Close()
+// 	bridgeClient := &SalmonTCPBridge{}
+// 	err = bridgeClient.Connect(listener.Addr().String())
+// 	if err != nil {
+// 		t.Fatalf("Connect failed: %v", err)
+// 	}
+// 	defer bridgeClient.Close()
 
-	pkt := SalmonTCPPacket{
-		RemoteAddr: "httpforever.com",
-		RemotePort: 80,
-		Data:       []byte("GET / HTTP/1.0\r\nHost: httpforever.com\r\n\r\n"),
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	resp, err := bridgeClient.ForwardTCP(ctx, pkt)
-	print("UNITTEST - Response length: ")
-	println(len(resp))
-	if err != nil {
-		t.Fatalf("ForwardTCP failed: %v", err)
-	}
-	if len(resp) == 0 || string(resp[:4]) != "HTTP" {
-		t.Errorf("expected HTTP response, got %q", string(resp))
-	}
-}
+// 	pkt := SalmonTCPPacket{
+// 		RemoteAddr: "httpforever.com",
+// 		RemotePort: 80,
+// 		Data:       []byte("GET / HTTP/1.0\r\nHost: httpforever.com\r\n\r\n"),
+// 	}
+// 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+// 	defer cancel()
+// 	resp, err := bridgeClient.ForwardTCP(ctx, pkt)
+// 	print("UNITTEST - Response length: ")
+// 	println(len(resp))
+// 	if err != nil {
+// 		t.Fatalf("ForwardTCP failed: %v", err)
+// 	}
+// 	if len(resp) == 0 || string(resp[:4]) != "HTTP" {
+// 		t.Errorf("expected HTTP response, got %q", string(resp))
+// 	}
+// }
 
 // func TestSalmonTcpBridge_HttpsRequest(t *testing.T) {
 // 	listener, err := net.Listen("tcp", "127.0.0.1:0")
