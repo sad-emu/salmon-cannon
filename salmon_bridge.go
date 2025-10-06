@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"sync"
@@ -15,239 +17,219 @@ import (
 type SalmonBridge struct {
 	BridgePort    int
 	BridgeAddress string
-	tunnel        *quic.Conn   // instead of net.Conn
-	tunnelStream  *quic.Stream // single control stream for frames
-	clientConns   map[uint32]net.Conn
-	tunnelMutex   sync.Mutex
+
+	mu      sync.Mutex
+	qconn   *quic.Conn // single long-lived QUIC connection
+	closing bool
 }
 
-func (s *SalmonBridge) handleTunnelClose() {
-	log.Printf("NEAR BRIDGE tunnel closed, cleaning up")
-	// Reset tunnel
-	s.tunnelMutex.Lock()
-	defer s.tunnelMutex.Unlock()
-	s.tunnelStream.Close()
-	s.tunnel.CloseWithError(0, "closed by user")
-	s.tunnel = nil
-	s.tunnelStream = nil
-}
+// =========================================================
+// Near side: dial far, open a new QUIC stream per TCP conn
+// =========================================================
 
-func (s *SalmonBridge) farToNearRelay() {
-	if s.tunnel == nil || s.tunnelStream == nil {
-		log.Printf("NEAR BRIDGE tunnel is nil, cannot start nearTunnel")
-		return
+func (s *SalmonBridge) ensureQUIC(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closing {
+		return fmt.Errorf("bridge is closing")
 	}
-	for {
-		f, err := decodeFrame(s.tunnelStream)
-		if err != nil {
-			log.Printf("NEAR BRIDGE tunnel error: %v", err)
-			s.handleTunnelClose()
-			return
-		}
-
-		if s.clientConns[f.ConnID] == nil {
-			log.Printf("NEAR BRIDGE received data for unknown connID %d", f.ConnID)
-			continue
-		}
-
-		switch f.Type {
-		case MsgData:
-			client := s.clientConns[f.ConnID]
-			if client != nil {
-				client.Write(f.Data)
-			}
-		case MsgClose:
-			if client := s.clientConns[f.ConnID]; client != nil {
-				client.Close()
-				delete(s.clientConns, f.ConnID)
-			}
-		}
+	if s.qconn != nil {
+		return nil
 	}
-}
+	addr := fmt.Sprintf("%s:%d", s.BridgeAddress, s.BridgePort)
 
-func (s *SalmonBridge) clientToFarRelay(connID uint32, c net.Conn) {
-	buf := make([]byte, 4096)
-	for {
-		n, err := c.Read(buf)
-		if err != nil {
-			break
-		}
-		if s.tunnel == nil {
-			log.Printf("NEAR BRIDGE tunnel has died, cannot relay data")
-			break
-		}
-		s.tunnelStream.Write(encodeFrame(Frame{Type: MsgData, ConnID: connID, Data: buf[:n]}))
+	tlsConf := &tls.Config{
+		InsecureSkipVerify: true, // for prototype
+		NextProtos:         []string{"salmon-bridge"},
+	}
+	qcfg := &quic.Config{
+		// Tune as needed:
+		MaxIdleTimeout:                 10 * time.Second,
+		InitialStreamReceiveWindow:     1024 * 1024 * 10, // 10 MiB
+		MaxStreamReceiveWindow:         1024 * 1024 * 40,
+		InitialConnectionReceiveWindow: 1024 * 1024 * 40,
+		// EnableDatagrams:              false,
 	}
 
-	if s.tunnel != nil {
-		s.tunnelStream.Write(encodeFrame(Frame{Type: MsgClose, ConnID: connID}))
-	}
-
-	c.Close()
-	delete(s.clientConns, connID)
-	log.Printf("NEAR BRIDGE clientToFarRelay closed for id %d", connID)
-}
-
-func (s *SalmonBridge) dialQUIC(bridgeAddr string) (*quic.Conn, *quic.Stream, error) {
-	log.Printf("NEAR BRIDGE dialing QUIC to %s", bridgeAddr)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // 3s handshake timeout
+	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	quicConfig := &quic.Config{}
-	// Set custom MTU if required (e.g., s.MTU > 0)
-	quicConfig.InitialPacketSize = 8400
-	quicConfig.MaxIdleTimeout = 10 * time.Second
 
-	quic, err := quic.DialAddr(ctx, bridgeAddr, &tls.Config{InsecureSkipVerify: true, NextProtos: []string{"salmon-bridge"}}, quicConfig)
-
+	qc, err := quic.DialAddr(dialCtx, addr, tlsConf, qcfg)
 	if err != nil {
-		log.Printf("NEAR BRIDGE failed to dial QUIC: %v", err)
-		return nil, nil, fmt.Errorf("failed to connect to bridge: %w", err)
+		return fmt.Errorf("dial QUIC %s: %w", addr, err)
 	}
-	log.Printf("NEAR BRIDGE opening steam")
-
-	quicStream, errr := quic.OpenStreamSync(context.Background())
-	if errr != nil {
-		return nil, nil, fmt.Errorf("failed to open stream: %w", errr)
-	}
-
-	return quic, quicStream, nil
+	s.qconn = qc
+	return nil
 }
 
+// NewNearConn returns a net.Conn to the caller. Internally, it opens a new QUIC
+// stream, sends a small header identifying the remote target (host:port),
+// and then pipes bytes bidirectionally.
 func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
-	log.Printf("NEAR BRIDGE New connection to %s:%d", host, port)
-	s.tunnelMutex.Lock()
-	defer s.tunnelMutex.Unlock()
-	if s.tunnel == nil {
-		s.clientConns = make(map[uint32]net.Conn)
-		log.Printf("NEAR BRIDGE IS DOWN - RECONNECTING")
-		bridgeAddr := fmt.Sprintf("%s:%d", s.BridgeAddress, s.BridgePort)
-		var err error
-		s.tunnel, s.tunnelStream, err = s.dialQUIC(bridgeAddr)
+	if err := s.ensureQUIC(context.Background()); err != nil {
+		return nil, err
+	}
+
+	// Create a local pipe: return one end to the caller, and connect the other to the QUIC stream.
+	clientSide, internal := net.Pipe()
+
+	go func() {
+		// Ensure we close the internal end if anything fails here.
+		defer internal.Close()
+
+		// Open a fresh bidirectional QUIC stream for this logical connection.
+		stream, err := s.qconn.OpenStreamSync(context.Background())
 		if err != nil {
-			return nil, fmt.Errorf("failed to connect to bridge: %w", err)
-		}
-		go s.farToNearRelay()
-		log.Printf("NEAR BRIDGE IS UP for bridgeAddr: %s", bridgeAddr)
-	}
-
-	clientSideCon, clientConn := net.Pipe()
-
-	// Assign unique ID for this proxied connection
-	connID := nextID() // e.g. atomic counter
-
-	s.clientConns[connID] = clientConn
-
-	// Send OPEN
-	openFrame := Frame{
-		Type:   MsgOpen,
-		ConnID: connID,
-		Data:   []byte(fmt.Sprintf("%s:%d", host, port)),
-	}
-
-	// TODO find a better way to handle this
-
-	_, err := s.tunnelStream.Write(encodeFrame(openFrame))
-	if err != nil {
-		log.Printf("NEAR BRIDGE failed to write open frame: %v", err)
-		return nil, fmt.Errorf("failed to write open frame: %w", err)
-	}
-
-	// Block here until we get an OPEN back from far side
-	go s.clientToFarRelay(connID, clientConn)
-
-	return clientSideCon, nil
-}
-
-func (s *SalmonBridge) farConnectionHandler(connID uint32, target net.Conn) {
-	buf := make([]byte, 65535)
-	for {
-		n, err := target.Read(buf)
-		if err != nil {
-			log.Printf("FAR BRIDGE target read error: %v", err)
-			break
-		}
-		dataFrame := Frame{Type: MsgData, ConnID: connID, Data: buf[:n]}
-		log.Printf("FAR BRIDGE sending frame response: %d", len(dataFrame.Data))
-		s.tunnelStream.Write(encodeFrame(dataFrame))
-		log.Printf("FAR BRIDGE sent frame response.")
-	}
-	s.tunnelStream.Write(encodeFrame(Frame{Type: MsgClose, ConnID: connID}))
-	log.Printf("FAR BRIDGE sent close frame for id %d", connID)
-}
-
-// Currently only support TCP outbound connections
-func (s *SalmonBridge) handleFarListenConnections(tunnel *quic.Stream) {
-	for {
-		f, err := decodeFrame(tunnel)
-		if err != nil {
-			log.Printf("FAR BRIDGE decodeFrame error: %v", err)
-			break
-		}
-		log.Printf("FAR BRIDGE recieved frame of len %d", len(f.Data))
-		switch f.Type {
-		case MsgOpen:
-			log.Printf("FAR BRIDGE MSG OPEN received")
-			targetAddr := string(f.Data)
-			target, err := net.Dial("tcp", targetAddr)
-			if err != nil {
-				log.Printf("FAR BRIDGE failed to connect to target %s: %v", targetAddr, err)
-				// TODO close back?
-				continue
-			}
-			s.clientConns[f.ConnID] = target
-			// tunnel.Write(encodeFrame(Frame{Type: MsgOpen, ConnID: f.ConnID}))
-			// Relay target responses back through tunnel
-			go s.farConnectionHandler(f.ConnID, target)
-
-		case MsgData:
-			if target := s.clientConns[f.ConnID]; target != nil {
-				log.Printf("FAR BRIDGE forwarded data for id %d", f.ConnID)
-				target.Write(f.Data)
-			}
-		case MsgClose:
-			if target := s.clientConns[f.ConnID]; target != nil {
-				log.Printf("FAR BRIDGE CLOSED for id %d", f.ConnID)
-				target.Close()
-				delete(s.clientConns, f.ConnID)
-			}
-		}
-	}
-}
-
-func (s *SalmonBridge) handleFarQUICConnection(conn *quic.Conn) {
-	for {
-		stream, err := conn.AcceptStream(context.Background())
-		if err != nil {
-			log.Printf("FAR BRIDGE AcceptStream error: %v", err)
+			log.Printf("NEAR: OpenStreamSync error: %v", err)
 			return
 		}
-		// TODO - we should handle multiple streams
-		s.tunnelStream = stream
-		go s.handleFarListenConnections(stream)
-	}
+		// Make sure the write side of the stream is FINed after sending client->far bytes.
+		defer stream.Close()
+
+		// 1) Send a small header carrying target address.
+		target := fmt.Sprintf("%s:%d", host, port)
+		if err := writeTargetHeader(stream, target); err != nil {
+			log.Printf("NEAR: write header error: %v", err)
+			// If we fail before copying, cancel read to unblock far side quickly.
+			stream.CancelRead(0)
+			return
+		}
+
+		// 2) Pump data both ways.
+		bidiPipe(stream, internal)
+	}()
+
+	return clientSide, nil
 }
 
-// Do we need to limit the number of tunnels?
-func (s *SalmonBridge) NewFarListen(listenAddr string) error {
-	s.clientConns = make(map[uint32]net.Conn)
+// =========================================================
+// Far side: accept streams, read header, dial target, pipe
+// =========================================================
 
+func (s *SalmonBridge) NewFarListen(listenAddr string) error {
 	tlsConf := &tls.Config{
 		Certificates: []tls.Certificate{generateSelfSignedCert()},
 		NextProtos:   []string{"salmon-bridge"},
 	}
-
-	ln, err := quic.ListenAddr(listenAddr, tlsConf, nil)
-	if err != nil {
-		log.Fatalf("FAR BRIDGE Failed to listen on %s %v", listenAddr, err)
+	qcfg := &quic.Config{
+		// Tune as needed (see near side).
 	}
-	log.Printf("FAR BRIDGE listening on %s", listenAddr)
+
+	l, err := quic.ListenAddr(listenAddr, tlsConf, qcfg)
+	if err != nil {
+		return fmt.Errorf("listen QUIC %s: %w", listenAddr, err)
+	}
+	log.Printf("FAR listening on %s", listenAddr)
 
 	for {
-		conn, err := ln.Accept(context.Background())
+		qc, err := l.Accept(context.Background())
 		if err != nil {
-			log.Printf("FAR BRIDGE Accept error: %v", err)
+			log.Printf("FAR: Accept conn error: %v", err)
 			continue
 		}
-		go s.handleFarQUICConnection(conn)
+
+		go func(conn *quic.Conn) {
+			for {
+				stream, err := conn.AcceptStream(context.Background())
+				if err != nil {
+					log.Printf("FAR: AcceptStream error: %v", err)
+					return
+				}
+				go s.handleIncomingStream(stream)
+			}
+		}(qc)
 	}
+}
+
+func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
+	// 1) Read target header.
+	target, err := readTargetHeader(stream)
+	if err != nil {
+		log.Printf("FAR: read header error: %v")
+		stream.CancelRead(0)
+		stream.Close()
+		return
+	}
+
+	// 2) Dial target TCP.
+	dst, err := net.Dial("tcp", target)
+	if err != nil {
+		log.Printf("FAR: dial %s error: %v", target, err)
+		stream.CancelRead(0)
+		stream.Close()
+		return
+	}
+	// Ensure we close both sides.
+	defer dst.Close()
+	defer stream.Close()
+
+	// 3) Pipe bytes both directions.
+	bidiPipe(stream, dst)
+}
+
+// =========================================================
+// Helpers
+// =========================================================
+
+// Simple 2-byte length-prefixed ASCII header carrying "host:port".
+func writeTargetHeader(w io.Writer, addr string) error {
+	if len(addr) > 65535 {
+		return fmt.Errorf("target address too long")
+	}
+	var hdr [2]byte
+	binary.BigEndian.PutUint16(hdr[:], uint16(len(addr)))
+	if _, err := w.Write(hdr[:]); err != nil {
+		return err
+	}
+	_, err := w.Write([]byte(addr))
+	return err
+}
+
+func readTargetHeader(r io.Reader) (string, error) {
+	var hdr [2]byte
+	if _, err := io.ReadFull(r, hdr[:]); err != nil {
+		return "", err
+	}
+	n := int(binary.BigEndian.Uint16(hdr[:]))
+	if n == 0 {
+		return "", fmt.Errorf("empty target")
+	}
+	buf := make([]byte, n)
+	if _, err := io.ReadFull(r, buf); err != nil {
+		return "", err
+	}
+	return string(buf), nil
+}
+
+// bidiPipe moves bytes both ways until EOF on both directions.
+// Semantics:
+// - When client->stream copy finishes, we FIN the stream write side (stream.Close()).
+// - When stream->client copy finishes, we close the TCP socket.
+// - On errors, we best-effort cancel the other direction to unblock.
+func bidiPipe(stream *quic.Stream, tcp net.Conn) {
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// client -> stream
+	go func() {
+		defer wg.Done()
+		if _, err := io.Copy(stream, tcp); err != nil {
+			// Abort sending on the stream if write fails.
+			stream.CancelWrite(0)
+		}
+		// Signal FIN on stream write side.
+		_ = stream.Close()
+	}()
+
+	// stream -> client
+	go func() {
+		defer wg.Done()
+		if _, err := io.Copy(tcp, stream); err != nil {
+			// Abort reading from stream if copy fails.
+			stream.CancelRead(0)
+		}
+		_ = tcp.Close()
+	}()
+
+	wg.Wait()
 }
