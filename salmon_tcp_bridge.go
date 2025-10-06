@@ -169,7 +169,7 @@ func (s *SalmonTCPBridge) handleFarListenConnections(tunnel net.Conn) {
 			log.Printf("FAR TCP BRIDGE decodeFrame error: %v", err)
 			break
 		}
-		log.Printf("FAR TCP BRIDGE recieved frame of len ", len(f.Data))
+		log.Printf("FAR TCP BRIDGE recieved frame of len %d", len(f.Data))
 		switch f.Type {
 		case MsgOpen:
 			log.Printf("FAR TCP BRIDGE MSG OPEN received")
@@ -182,9 +182,9 @@ func (s *SalmonTCPBridge) handleFarListenConnections(tunnel net.Conn) {
 			}
 			s.clientConns[f.ConnID] = target
 
-			// Relay target → tunnel
+			// Relay target responses back through tunnel
 			go func(connID uint32, target net.Conn) {
-				buf := make([]byte, 4096)
+				buf := make([]byte, 65535)
 				for {
 					n, err := target.Read(buf)
 					if err != nil {
