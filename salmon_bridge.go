@@ -3,9 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"encoding/binary"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"sync"
@@ -18,9 +16,10 @@ type SalmonBridge struct {
 	BridgePort    int
 	BridgeAddress string
 
-	mu      sync.Mutex
-	qconn   *quic.Conn // single long-lived QUIC connection
-	closing bool
+	mu    sync.Mutex
+	qconn *quic.Conn // single long-lived QUIC connection
+
+	sl *SharedLimiter
 }
 
 // =========================================================
@@ -30,24 +29,30 @@ type SalmonBridge struct {
 func (s *SalmonBridge) ensureQUIC(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closing {
-		return fmt.Errorf("bridge is closing")
-	}
 	if s.qconn != nil {
 		return nil
 	}
 	addr := fmt.Sprintf("%s:%d", s.BridgeAddress, s.BridgePort)
 
+	s.sl = NewSharedLimiter(1024 * 1024 * 100) // 1 MiB/s total
+
+	// TODO - things to move to configs
+	// - Reset timeout 10secs default
+	// - InitalPacketSize 1350 default
+	// - TODO make proto the configurable name
+
 	tlsConf := &tls.Config{
 		InsecureSkipVerify: true, // for prototype
 		NextProtos:         []string{"salmon-bridge"},
 	}
+
 	qcfg := &quic.Config{
 		// Tune as needed:
 		MaxIdleTimeout:                 10 * time.Second,
 		InitialStreamReceiveWindow:     1024 * 1024 * 10, // 10 MiB
 		MaxStreamReceiveWindow:         1024 * 1024 * 40,
 		InitialConnectionReceiveWindow: 1024 * 1024 * 40,
+		InitialPacketSize:              8400,
 		// EnableDatagrams:              false,
 	}
 
@@ -88,7 +93,7 @@ func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 
 		// 1) Send a small header carrying target address.
 		target := fmt.Sprintf("%s:%d", host, port)
-		if err := writeTargetHeader(stream, target); err != nil {
+		if err := WriteTargetHeader(stream, target); err != nil {
 			log.Printf("NEAR: write header error: %v", err)
 			// If we fail before copying, cancel read to unblock far side quickly.
 			stream.CancelRead(0)
@@ -96,7 +101,7 @@ func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 		}
 
 		// 2) Pump data both ways.
-		bidiPipe(stream, internal)
+		BidiPipe(stream, internal, s.sl)
 	}()
 
 	return clientSide, nil
@@ -111,6 +116,8 @@ func (s *SalmonBridge) NewFarListen(listenAddr string) error {
 		Certificates: []tls.Certificate{generateSelfSignedCert()},
 		NextProtos:   []string{"salmon-bridge"},
 	}
+	s.sl = NewSharedLimiter(1024 * 1024 * 100)
+
 	qcfg := &quic.Config{
 		// Tune as needed (see near side).
 	}
@@ -143,7 +150,7 @@ func (s *SalmonBridge) NewFarListen(listenAddr string) error {
 
 func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 	// 1) Read target header.
-	target, err := readTargetHeader(stream)
+	target, err := ReadTargetHeader(stream)
 	if err != nil {
 		log.Printf("FAR: read header error: %v")
 		stream.CancelRead(0)
@@ -164,72 +171,5 @@ func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 	defer stream.Close()
 
 	// 3) Pipe bytes both directions.
-	bidiPipe(stream, dst)
-}
-
-// =========================================================
-// Helpers
-// =========================================================
-
-// Simple 2-byte length-prefixed ASCII header carrying "host:port".
-func writeTargetHeader(w io.Writer, addr string) error {
-	if len(addr) > 65535 {
-		return fmt.Errorf("target address too long")
-	}
-	var hdr [2]byte
-	binary.BigEndian.PutUint16(hdr[:], uint16(len(addr)))
-	if _, err := w.Write(hdr[:]); err != nil {
-		return err
-	}
-	_, err := w.Write([]byte(addr))
-	return err
-}
-
-func readTargetHeader(r io.Reader) (string, error) {
-	var hdr [2]byte
-	if _, err := io.ReadFull(r, hdr[:]); err != nil {
-		return "", err
-	}
-	n := int(binary.BigEndian.Uint16(hdr[:]))
-	if n == 0 {
-		return "", fmt.Errorf("empty target")
-	}
-	buf := make([]byte, n)
-	if _, err := io.ReadFull(r, buf); err != nil {
-		return "", err
-	}
-	return string(buf), nil
-}
-
-// bidiPipe moves bytes both ways until EOF on both directions.
-// Semantics:
-// - When client->stream copy finishes, we FIN the stream write side (stream.Close()).
-// - When stream->client copy finishes, we close the TCP socket.
-// - On errors, we best-effort cancel the other direction to unblock.
-func bidiPipe(stream *quic.Stream, tcp net.Conn) {
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	// client -> stream
-	go func() {
-		defer wg.Done()
-		if _, err := io.Copy(stream, tcp); err != nil {
-			// Abort sending on the stream if write fails.
-			stream.CancelWrite(0)
-		}
-		// Signal FIN on stream write side.
-		_ = stream.Close()
-	}()
-
-	// stream -> client
-	go func() {
-		defer wg.Done()
-		if _, err := io.Copy(tcp, stream); err != nil {
-			// Abort reading from stream if copy fails.
-			stream.CancelRead(0)
-		}
-		_ = tcp.Close()
-	}()
-
-	wg.Wait()
+	BidiPipe(stream, dst, s.sl)
 }
