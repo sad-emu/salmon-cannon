@@ -17,12 +17,12 @@ func NewSalmonNear(farIP string, farPort int) (*SalmonNear, error) {
 		farPort:       farPort,
 		currentBridge: SalmonBridge{},
 	}
+	near.currentBridge.bridgeDown = true
 	return near, nil
 }
 
 func (n *SalmonNear) HandleRequest(conn net.Conn) {
 	defer conn.Close()
-	println("New near connection")
 
 	// 1. Read greeting
 	buf := make([]byte, maxMethods+2)

@@ -19,6 +19,7 @@ func NewSalmonFar(port int) (*SalmonFar, error) {
 		port:      port,
 		farBridge: SalmonBridge{},
 	}
+	far.farBridge.bridgeDown = true
 	farListenAddr := fmt.Sprintf(":%d", port)
 	fmt.Printf("farListenAddr: '%s' (len=%d)\n", farListenAddr, len(farListenAddr))
 	far.farBridge.NewFarListen(farListenAddr)

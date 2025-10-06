@@ -20,6 +20,8 @@ type SalmonBridge struct {
 	qconn *quic.Conn // single long-lived QUIC connection
 
 	sl *SharedLimiter
+
+	bridgeDown bool
 }
 
 // =========================================================
@@ -29,17 +31,24 @@ type SalmonBridge struct {
 func (s *SalmonBridge) ensureQUIC(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.qconn != nil {
+	if s.qconn != nil && s.bridgeDown == false {
 		return nil
 	}
-	addr := fmt.Sprintf("%s:%d", s.BridgeAddress, s.BridgePort)
 
-	s.sl = NewSharedLimiter(1024 * 1024 * 100) // 1 MiB/s total
+	if s.qconn != nil {
+		s.qconn.CloseWithError(0, "reconnecting")
+		s.qconn = nil
+	}
+
+	addr := fmt.Sprintf("%s:%d", s.BridgeAddress, s.BridgePort)
 
 	// TODO - things to move to configs
 	// - Reset timeout 10secs default
 	// - InitalPacketSize 1350 default
 	// - TODO make proto the configurable name
+
+	// TODO is this bits or bytes?
+	s.sl = NewSharedLimiter(1024 * 1024 * 100) // 100 MiB/s total
 
 	tlsConf := &tls.Config{
 		InsecureSkipVerify: true, // for prototype
@@ -63,6 +72,7 @@ func (s *SalmonBridge) ensureQUIC(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("dial QUIC %s: %w", addr, err)
 	}
+	s.bridgeDown = false
 	s.qconn = qc
 	return nil
 }
@@ -85,6 +95,9 @@ func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 		// Open a fresh bidirectional QUIC stream for this logical connection.
 		stream, err := s.qconn.OpenStreamSync(context.Background())
 		if err != nil {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			s.bridgeDown = true
 			log.Printf("NEAR: OpenStreamSync error: %v", err)
 			return
 		}
@@ -116,6 +129,8 @@ func (s *SalmonBridge) NewFarListen(listenAddr string) error {
 		Certificates: []tls.Certificate{generateSelfSignedCert()},
 		NextProtos:   []string{"salmon-bridge"},
 	}
+
+	// TODO is this bits or bytes?
 	s.sl = NewSharedLimiter(1024 * 1024 * 100)
 
 	qcfg := &quic.Config{
