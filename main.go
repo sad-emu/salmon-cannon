@@ -14,7 +14,7 @@ func main() {
 
 	if *mode == "near" {
 		log.Println("Starting in Near mode...")
-		near, err := NewSalmonNear("127.0.0.1", 1099)
+		near, err := NewSalmonNear("127.0.0.1", 55001)
 		if err != nil {
 			log.Fatalf("Failed to setup salmon near")
 		}
@@ -33,7 +33,7 @@ func main() {
 		}
 	} else if *mode == "far" {
 		log.Println("Starting in Far mode...")
-		far, err := NewSalmonFar(1099)
+		far, err := NewSalmonFar(55001)
 		if err != nil {
 			log.Fatalf("Failed to start SalmonFar: %v", err)
 		}

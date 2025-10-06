@@ -81,7 +81,7 @@ func (n *SalmonNear) HandleRequest(conn net.Conn) {
 
 	// 4. Open a streaming session to far
 	n.currentBridge.BridgeAddress = "127.0.0.1"
-	n.currentBridge.BridgePort = 1099
+	n.currentBridge.BridgePort = 55001
 	stream, err := n.currentBridge.NewNearConn(host, port)
 	if err != nil {
 		conn.Write(replyFail)
