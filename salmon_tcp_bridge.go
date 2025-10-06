@@ -4,7 +4,14 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sync/atomic"
 )
+
+var globalConnID uint32
+
+func nextID() uint32 {
+	return atomic.AddUint32(&globalConnID, 1)
+}
 
 type SalmonTCPBridgeConnection struct {
 	structLength     uint32
@@ -44,76 +51,145 @@ func (c *SalmonTCPBridgeConnection) Decode(data []byte) error {
 type SalmonTCPBridge struct {
 	BridgePort    int
 	BridgeAddress string
+	tunnel        net.Conn
+	clientConns   map[uint32]net.Conn
 }
 
-func (s *SalmonTCPBridge) NewNearConn(hostname string, port int) (net.Conn, error) {
-	// Connect to the far bridge using BridgePort and BridgeAddress
+func (s *SalmonTCPBridge) farToNearRelay() {
+	if s.tunnel == nil {
+		log.Printf("NEAR TCP BRIDGE tunnel is nil, cannot start nearTunnel")
+		return
+	}
+	for {
+		f, err := decodeFrame(s.tunnel)
+		if err != nil {
+			break
+		}
+
+		switch f.Type {
+		case MsgData:
+			client := s.clientConns[f.ConnID]
+			if client != nil {
+				client.Write(f.Data)
+			}
+		case MsgClose:
+			if client := s.clientConns[f.ConnID]; client != nil {
+				client.Close()
+				delete(s.clientConns, f.ConnID)
+			}
+		}
+	}
+}
+
+func (s *SalmonTCPBridge) clientToFarRelay(connID uint32, c net.Conn) {
+	buf := make([]byte, 4096)
+	for {
+		n, err := c.Read(buf)
+		if err != nil {
+			break
+		}
+		s.tunnel.Write(encodeFrame(Frame{Type: MsgData, ConnID: connID, Data: buf[:n]}))
+	}
+	s.tunnel.Write(encodeFrame(Frame{Type: MsgClose, ConnID: connID}))
+	c.Close()
+	delete(s.clientConns, connID)
+	log.Printf("NEAR TCP BRIDGE clientToFarRelay closed for id %d", connID)
+}
+
+func (s *SalmonTCPBridge) NewNearConn(host string, port int) (net.Conn, error) {
 	log.Printf("NEAR TCP BRIDGE New connection")
-	bridgeAddr := fmt.Sprintf("%s:%d", s.BridgeAddress, s.BridgePort)
-	log.Printf("NEAR TCP BRIDGE for bridgeAddr: %s", bridgeAddr)
-	conn, err := net.Dial("tcp", bridgeAddr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to bridge: %w", err)
-	}
-	log.Printf("NEAR TCP BRIDGE connected to far bridge")
-	// Prepare the connection request
-	connReq := &SalmonTCPBridgeConnection{
-		connectionString: fmt.Sprintf("%s:%d", hostname, port),
-	}
-	log.Printf("NEAR TCP BRIDGE built connection packet")
-	reqBytes, err := connReq.Encode()
-	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("failed to encode connection request: %w", err)
+
+	if s.tunnel == nil {
+		s.clientConns = make(map[uint32]net.Conn)
+		log.Printf("NEAR TCP BRIDGE IS DOWN - RECONNECTING")
+		bridgeAddr := fmt.Sprintf("%s:%d", s.BridgeAddress, s.BridgePort)
+		var err error
+		s.tunnel, err = net.Dial("tcp", bridgeAddr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to bridge: %w", err)
+		}
+		go s.farToNearRelay()
+		log.Printf("NEAR TCP BRIDGE IS UP for bridgeAddr: %s", bridgeAddr)
 	}
 
-	// Send the connection request
-	_, err = conn.Write(reqBytes)
-	if err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("failed to send connection request: %w", err)
+	clientSideCon, clientConn := net.Pipe()
+
+	// Assign unique ID for this proxied connection
+	connID := nextID() // e.g. atomic counter
+
+	s.clientConns[connID] = clientConn
+
+	// Send OPEN
+	openFrame := Frame{
+		Type:   MsgOpen,
+		ConnID: connID,
+		Data:   []byte(fmt.Sprintf("%s:%d", host, port)),
 	}
+	s.tunnel.Write(encodeFrame(openFrame))
+
+	go s.clientToFarRelay(connID, clientConn)
 
 	log.Printf("NEAR TCP BRIDGE sent connection packet")
 	// Return the established connection
 
-	return conn, nil
+	return clientSideCon, nil
 }
 
-func (s *SalmonTCPBridge) handleFarListenConnections(conn net.Conn) {
-	log.Printf("FAR TCP BRIDGE New connection")
-	defer conn.Close()
-	buf := make([]byte, 2048)
-	n, err := conn.Read(buf)
-	if err != nil {
-		log.Printf("FAR TCP BRIDGE Read error: %v", err)
-		return
-	}
-	log.Printf("FAR TCP BRIDGE read %d bytes", n)
-	var connReq SalmonTCPBridgeConnection
-	err = connReq.Decode(buf[:n])
-	if err != nil {
-		log.Printf("FAR TCP BRIDGE Decode error: %v", err)
-		return
-	}
-	log.Printf("FAR TCP BRIDGE Received connection request: %s", connReq.connectionString)
-	// Here you would handle the connection request, e.g., establish a new connection
-	// For demonstration, we just log and close
+func (s *SalmonTCPBridge) handleFarListenConnections(tunnel net.Conn) {
+	for {
+		f, err := decodeFrame(tunnel)
+		if err != nil {
+			log.Printf("FAR TCP BRIDGE decodeFrame error: %v", err)
+			break
+		}
+		log.Printf("FAR TCP BRIDGE recieved frame: %+v", f)
+		switch f.Type {
+		case MsgOpen:
+			log.Printf("FAR TCP BRIDGE MSG OPEN received")
+			targetAddr := string(f.Data)
+			target, err := net.Dial("tcp", targetAddr)
+			if err != nil {
+				log.Printf("FAR TCP BRIDGE failed to connect to target %s: %v", targetAddr, err)
+				// optionally send CLOSE back
+				continue
+			}
+			s.clientConns[f.ConnID] = target
 
-	// 5. Connect to target
-	target, err := net.Dial("tcp", connReq.connectionString)
-	if err != nil {
-		log.Printf("FAR TCP BRIDGE Connect error: %v", err)
-		return
+			// Relay target → tunnel
+			go func(connID uint32, target net.Conn) {
+				buf := make([]byte, 4096)
+				for {
+					n, err := target.Read(buf)
+					if err != nil {
+						log.Printf("FAR TCP BRIDGE target read error: %v", err)
+						break
+					}
+					dataFrame := Frame{Type: MsgData, ConnID: connID, Data: buf[:n]}
+					log.Printf("FAR TCP BRIDGE sending frame response: %+v", dataFrame)
+					tunnel.Write(encodeFrame(dataFrame))
+					log.Printf("FAR TCP BRIDGE sent frame response.")
+				}
+				tunnel.Write(encodeFrame(Frame{Type: MsgClose, ConnID: connID}))
+				log.Printf("FAR TCP BRIDGE sent close frame for id %d", connID)
+			}(f.ConnID, target)
+
+		case MsgData:
+			if target := s.clientConns[f.ConnID]; target != nil {
+				log.Printf("FAR TCP BRIDGE forwarded data for id %d", f.ConnID)
+				target.Write(f.Data)
+			}
+		case MsgClose:
+			if target := s.clientConns[f.ConnID]; target != nil {
+				log.Printf("FAR TCP BRIDGE CLOSED for id %d", f.ConnID)
+				target.Close()
+				delete(s.clientConns, f.ConnID)
+			}
+		}
 	}
-	defer target.Close()
-	// 6. Relay data
-	go func() { ioCopy(target, conn) }()
-	ioCopy(conn, target)
-	log.Printf("FAR TCP BRIDGE Handling connection to %s", connReq.connectionString)
 }
 
 func (s *SalmonTCPBridge) NewFarListen(listenAddr string) error {
+	s.clientConns = make(map[uint32]net.Conn)
 	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		log.Fatalf("FAR TCP BRIDGE Failed to listen on %s %v", listenAddr, err)
@@ -121,11 +197,11 @@ func (s *SalmonTCPBridge) NewFarListen(listenAddr string) error {
 	}
 	log.Printf("FAR TCP BRIDGE listening on %s", listenAddr)
 	for {
-		conn, err := ln.Accept()
+		tunnel, err := ln.Accept()
 		if err != nil {
 			log.Printf("FAR TCP BRIDGE Accept error: %v", err)
 			continue
 		}
-		go s.handleFarListenConnections(conn)
+		go s.handleFarListenConnections(tunnel)
 	}
 }
