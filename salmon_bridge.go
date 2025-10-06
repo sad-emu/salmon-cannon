@@ -22,6 +22,8 @@ type SalmonBridge struct {
 	sl *SharedLimiter
 
 	bridgeDown bool
+	qcfg       *quic.Config
+	tlscfg     *tls.Config
 }
 
 // =========================================================
@@ -42,33 +44,10 @@ func (s *SalmonBridge) ensureQUIC(ctx context.Context) error {
 
 	addr := fmt.Sprintf("%s:%d", s.BridgeAddress, s.BridgePort)
 
-	// TODO - things to move to configs
-	// - Reset timeout 10secs default
-	// - InitalPacketSize 1350 default
-	// - TODO make proto the configurable name
-
-	// TODO is this bits or bytes?
-	s.sl = NewSharedLimiter(1024 * 1024 * 100) // 100 MiB/s total
-
-	tlsConf := &tls.Config{
-		InsecureSkipVerify: true, // for prototype
-		NextProtos:         []string{"salmon-bridge"},
-	}
-
-	qcfg := &quic.Config{
-		// Tune as needed:
-		MaxIdleTimeout:                 10 * time.Second,
-		InitialStreamReceiveWindow:     1024 * 1024 * 10, // 10 MiB
-		MaxStreamReceiveWindow:         1024 * 1024 * 40,
-		InitialConnectionReceiveWindow: 1024 * 1024 * 40,
-		InitialPacketSize:              8400,
-		// EnableDatagrams:              false,
-	}
-
 	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	qc, err := quic.DialAddr(dialCtx, addr, tlsConf, qcfg)
+	qc, err := quic.DialAddr(dialCtx, addr, s.tlscfg, s.qcfg)
 	if err != nil {
 		return fmt.Errorf("dial QUIC %s: %w", addr, err)
 	}
@@ -125,19 +104,8 @@ func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 // =========================================================
 
 func (s *SalmonBridge) NewFarListen(listenAddr string) error {
-	tlsConf := &tls.Config{
-		Certificates: []tls.Certificate{generateSelfSignedCert()},
-		NextProtos:   []string{"salmon-bridge"},
-	}
 
-	// TODO is this bits or bytes?
-	s.sl = NewSharedLimiter(1024 * 1024 * 100)
-
-	qcfg := &quic.Config{
-		// Tune as needed (see near side).
-	}
-
-	l, err := quic.ListenAddr(listenAddr, tlsConf, qcfg)
+	l, err := quic.ListenAddr(listenAddr, s.tlscfg, s.qcfg)
 	if err != nil {
 		return fmt.Errorf("listen QUIC %s: %w", listenAddr, err)
 	}

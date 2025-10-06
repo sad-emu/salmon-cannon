@@ -1,7 +1,11 @@
 package main
 
 import (
+	"crypto/tls"
 	"net"
+	"time"
+
+	quic "github.com/quic-go/quic-go"
 )
 
 type SalmonNear struct {
@@ -17,6 +21,31 @@ func NewSalmonNear(farIP string, farPort int) (*SalmonNear, error) {
 		farPort:       farPort,
 		currentBridge: SalmonBridge{},
 	}
+
+	// TODO - things to move to configs
+	// - Reset timeout 10secs default
+	// - InitalPacketSize 1350 default
+	// - TODO make proto the configurable name
+
+	qcfg := &quic.Config{
+		// Tune as needed:
+		MaxIdleTimeout:                 10 * time.Second,
+		InitialStreamReceiveWindow:     1024 * 1024 * 10, // 10 MiB
+		MaxStreamReceiveWindow:         1024 * 1024 * 40,
+		InitialConnectionReceiveWindow: 1024 * 1024 * 40,
+		InitialPacketSize:              8400,
+		// EnableDatagrams:              false,
+	}
+
+	// TODO is this bits or bytes?
+	near.currentBridge.sl = NewSharedLimiter(1024 * 1024 * 1) // 100 MiB/s total
+
+	near.currentBridge.tlscfg = &tls.Config{
+		InsecureSkipVerify: true, // for prototype
+		NextProtos:         []string{"salmon-bridge"},
+	}
+
+	near.currentBridge.qcfg = qcfg
 	near.currentBridge.bridgeDown = true
 	return near, nil
 }
