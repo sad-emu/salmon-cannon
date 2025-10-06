@@ -8,14 +8,14 @@ type SalmonNear struct {
 	farIP         string
 	farPort       int
 	conn          net.Conn
-	currentBridge SalmonTCPBridge
+	currentBridge SalmonBridge
 }
 
 func NewSalmonNear(farIP string, farPort int) (*SalmonNear, error) {
 	near := &SalmonNear{
 		farIP:         farIP,
 		farPort:       farPort,
-		currentBridge: SalmonTCPBridge{},
+		currentBridge: SalmonBridge{},
 	}
 	return near, nil
 }

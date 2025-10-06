@@ -8,7 +8,7 @@ import (
 type SalmonFar struct {
 	port      int
 	ln        net.Listener
-	farBridge SalmonTCPBridge
+	farBridge SalmonBridge
 }
 
 // TODO - for bridge types it should start listeners for them
@@ -17,7 +17,7 @@ type SalmonFar struct {
 func NewSalmonFar(port int) (*SalmonFar, error) {
 	far := &SalmonFar{
 		port:      port,
-		farBridge: SalmonTCPBridge{},
+		farBridge: SalmonBridge{},
 	}
 	farListenAddr := fmt.Sprintf(":%d", port)
 	fmt.Printf("farListenAddr: '%s' (len=%d)\n", farListenAddr, len(farListenAddr))
