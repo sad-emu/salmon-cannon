@@ -102,11 +102,11 @@ func (s *SalmonTCPBridge) handleFarListenConnections(conn net.Conn) {
 
 	// 5. Connect to target
 	target, err := net.Dial("tcp", connReq.connectionString)
-	defer target.Close()
 	if err != nil {
 		log.Printf("FAR TCP BRIDGE Connect error: %v", err)
 		return
 	}
+	defer target.Close()
 	// 6. Relay data
 	go func() { ioCopy(target, conn) }()
 	ioCopy(conn, target)
