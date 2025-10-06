@@ -135,7 +135,7 @@ func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 	// 1) Read target header.
 	target, err := ReadTargetHeader(stream)
 	if err != nil {
-		log.Printf("FAR: read header error: %v")
+		log.Printf("FAR: read header error: %v", err)
 		stream.CancelRead(0)
 		stream.Close()
 		return

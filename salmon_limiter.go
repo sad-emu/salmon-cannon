@@ -31,6 +31,9 @@ type SharedLimiter struct {
 }
 
 func NewSharedLimiter(bytesPerSec int64) *SharedLimiter {
+	if bytesPerSec <= 0 {
+		return nil
+	}
 	b := ratelimit.NewBucketWithRate(float64(bytesPerSec), bytesPerSec)
 	return &SharedLimiter{bucket: b}
 }

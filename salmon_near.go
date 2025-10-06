@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/tls"
+	"io"
 	"net"
 	"time"
 
@@ -38,7 +39,7 @@ func NewSalmonNear(farIP string, farPort int) (*SalmonNear, error) {
 	}
 
 	// TODO is this bits or bytes?
-	near.currentBridge.sl = NewSharedLimiter(1024 * 1024 * 1) // 100 MiB/s total
+	near.currentBridge.sl = NewSharedLimiter(1024 * 1024 * 100) // 100 MiB/s total
 
 	near.currentBridge.tlscfg = &tls.Config{
 		InsecureSkipVerify: true, // for prototype
@@ -122,6 +123,6 @@ func (n *SalmonNear) HandleRequest(conn net.Conn) {
 	conn.Write(replySuccess)
 
 	// 6. Relay data
-	go func() { ioCopy(stream, conn) }()
-	ioCopy(conn, stream)
+	go func() { io.Copy(stream, conn) }()
+	io.Copy(conn, stream)
 }
