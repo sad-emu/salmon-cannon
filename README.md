@@ -1,5 +1,8 @@
 # The Salmon Cannon
-SalmonCannon (sc) is a high-performance SOCKS5 proxy that tunnels TCP traffic between a 'near' node and a 'far' node using the QUIC protocol. It is designed for efficient, and reliable TCP forwarding in challenging network environments.
+## NOT READY FOR USE
+SOCKS5 auth & bridge authentication is TODO. Do not use this project yet.
+## Description
+SalmonCannon (sc) is a SOCKS5 proxy that tunnels TCP traffic between a 'near' node and a 'far' node using the QUIC protocol. It is designed for efficient, and reliable TCP forwarding in challenging network environments.
 
 [client(s)]--tcp-->[Near sc]--QUIC-->[Far sc]--TCP-->[server(s)]
 
