@@ -1,4 +1,4 @@
-package main
+package bridge
 
 import (
 	"context"
@@ -22,8 +22,22 @@ type SalmonBridge struct {
 	sl *SharedLimiter
 
 	bridgeDown bool
+	connector  bool
 	qcfg       *quic.Config
 	tlscfg     *tls.Config
+}
+
+func NewSalmonBridge(address string, port int, tlscfg *tls.Config,
+	qcfg *quic.Config, sl *SharedLimiter, connector bool) *SalmonBridge {
+	return &SalmonBridge{
+		BridgeAddress: address,
+		BridgePort:    port,
+		tlscfg:        tlscfg,
+		qcfg:          qcfg,
+		sl:            sl,
+		connector:     connector,
+		bridgeDown:    true,
+	}
 }
 
 // =========================================================
@@ -60,8 +74,12 @@ func (s *SalmonBridge) ensureQUIC(ctx context.Context) error {
 // stream, sends a small header identifying the remote target (host:port),
 // and then pipes bytes bidirectionally.
 func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
-	if err := s.ensureQUIC(context.Background()); err != nil {
-		return nil, err
+
+	if s.connector {
+		// Only connectors can initiate connections.
+		if err := s.ensureQUIC(context.Background()); err != nil {
+			return nil, err
+		}
 	}
 
 	// Create a local pipe: return one end to the caller, and connect the other to the QUIC stream.
@@ -77,7 +95,7 @@ func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			s.bridgeDown = true
-			log.Printf("NEAR: OpenStreamSync error: %v", err)
+			log.Printf("NEAR: OpenStreamSync closed: %v", err)
 			return
 		}
 		// Make sure the write side of the stream is FINed after sending client->far bytes.
@@ -103,7 +121,9 @@ func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 // Far side: accept streams, read header, dial target, pipe
 // =========================================================
 
-func (s *SalmonBridge) NewFarListen(listenAddr string) error {
+func (s *SalmonBridge) NewFarListen() error {
+	listenAddr := fmt.Sprintf(":%d", s.BridgePort)
+	fmt.Printf("FAR address farListenAddr: '%s' (len=%d)\n", listenAddr, len(listenAddr))
 
 	l, err := quic.ListenAddr(listenAddr, s.tlscfg, s.qcfg)
 	if err != nil {
@@ -122,7 +142,7 @@ func (s *SalmonBridge) NewFarListen(listenAddr string) error {
 			for {
 				stream, err := conn.AcceptStream(context.Background())
 				if err != nil {
-					log.Printf("FAR: AcceptStream error: %v", err)
+					log.Printf("FAR: AcceptStream closed: %v", err)
 					return
 				}
 				go s.handleIncomingStream(stream)

@@ -29,6 +29,7 @@ func itoa(i int) string {
 
 var globalConnID uint32
 
+// Previously used for tcp multiplexing
 func nextID() uint32 {
 	return atomic.AddUint32(&globalConnID, 1)
 }

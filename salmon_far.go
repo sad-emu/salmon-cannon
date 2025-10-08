@@ -3,40 +3,41 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
-	"net"
+	"salmoncannon/bridge"
+	"salmoncannon/config"
 
 	quic "github.com/quic-go/quic-go"
 )
 
 type SalmonFar struct {
-	port      int
-	ln        net.Listener
-	farBridge SalmonBridge
+	farBridge *bridge.SalmonBridge
 }
 
 // TODO - for bridge types it should start listeners for them
 // near should be able to make requests through them
 
-func NewSalmonFar(port int) (*SalmonFar, error) {
-	far := &SalmonFar{
-		port:      port,
-		farBridge: SalmonBridge{},
-	}
-	far.farBridge.tlscfg = &tls.Config{
+func NewSalmonFar(config *config.SalmonBridgeConfig) (*SalmonFar, error) {
+
+	tlscfg := &tls.Config{
 		Certificates: []tls.Certificate{generateSelfSignedCert()},
-		NextProtos:   []string{"salmon-bridge"},
+		NextProtos:   []string{config.Name},
 	}
 
 	// TODO is this bits or bytes?
-	far.farBridge.sl = NewSharedLimiter(1024 * 1024 * 100)
+	sl := bridge.NewSharedLimiter(int64(config.TotalBandwidthLimit))
 
-	far.farBridge.qcfg = &quic.Config{
+	qcfg := &quic.Config{
 		// Tune as needed (see near side).
 	}
 
-	far.farBridge.bridgeDown = true
-	farListenAddr := fmt.Sprintf(":%d", port)
+	farListenAddr := fmt.Sprintf(":%d", config.NearPort)
 	fmt.Printf("farListenAddr: '%s' (len=%d)\n", farListenAddr, len(farListenAddr))
-	far.farBridge.NewFarListen(farListenAddr)
+
+	farBridge := bridge.NewSalmonBridge("", config.NearPort, tlscfg, qcfg, sl, config.Connect)
+
+	far := &SalmonFar{
+		farBridge: farBridge,
+	}
+
 	return far, nil
 }

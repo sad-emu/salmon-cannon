@@ -3,52 +3,56 @@ package main
 import (
 	"crypto/tls"
 	"io"
+	"log"
 	"net"
-	"time"
+	"salmoncannon/bridge"
+	"salmoncannon/config"
 
 	quic "github.com/quic-go/quic-go"
 )
 
 type SalmonNear struct {
-	farIP         string
-	farPort       int
-	conn          net.Conn
-	currentBridge SalmonBridge
+	currentBridge *bridge.SalmonBridge
 }
 
-func NewSalmonNear(farIP string, farPort int) (*SalmonNear, error) {
-	near := &SalmonNear{
-		farIP:         farIP,
-		farPort:       farPort,
-		currentBridge: SalmonBridge{},
-	}
-
-	// TODO - things to move to configs
-	// - Reset timeout 10secs default
-	// - InitalPacketSize 1350 default
-	// - TODO make proto the configurable name
+func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
+	bridgeAddress := config.FarIp
+	bridgePort := config.FarPort
 
 	qcfg := &quic.Config{
-		// Tune as needed:
-		MaxIdleTimeout:                 10 * time.Second,
-		InitialStreamReceiveWindow:     1024 * 1024 * 10, // 10 MiB
-		MaxStreamReceiveWindow:         1024 * 1024 * 40,
-		InitialConnectionReceiveWindow: 1024 * 1024 * 40,
-		InitialPacketSize:              8400,
-		// EnableDatagrams:              false,
+		MaxIdleTimeout:                 config.IdleTimeout.Duration(),
+		InitialStreamReceiveWindow:     uint64(config.RecieveWindow),
+		MaxStreamReceiveWindow:         uint64(config.MaxRecieveWindow),
+		InitialConnectionReceiveWindow: uint64(config.RecieveWindow),
+		MaxConnectionReceiveWindow:     uint64(config.MaxRecieveWindow),
+		InitialPacketSize:              uint16(config.InitialPacketSize),
 	}
 
-	// TODO is this bits or bytes?
-	near.currentBridge.sl = NewSharedLimiter(1024 * 1024 * 100) // 100 MiB/s total
+	sl := bridge.NewSharedLimiter(int64(config.TotalBandwidthLimit))
 
-	near.currentBridge.tlscfg = &tls.Config{
+	tlscfg := &tls.Config{
 		InsecureSkipVerify: true, // for prototype
-		NextProtos:         []string{"salmon-bridge"},
+		NextProtos:         []string{config.Name},
 	}
 
-	near.currentBridge.qcfg = qcfg
-	near.currentBridge.bridgeDown = true
+	salmonBridge := bridge.NewSalmonBridge(bridgeAddress, bridgePort, tlscfg, qcfg, sl, config.Connect)
+
+	near := &SalmonNear{
+		currentBridge: salmonBridge,
+	}
+
 	return near, nil
+}
+
+func NewSalmonNearFromFar(salmonFar *SalmonFar) *SalmonNear {
+
+	salmonBridge := salmonFar.farBridge
+
+	near := &SalmonNear{
+		currentBridge: salmonBridge,
+	}
+
+	return near
 }
 
 func (n *SalmonNear) HandleRequest(conn net.Conn) {
@@ -109,12 +113,12 @@ func (n *SalmonNear) HandleRequest(conn net.Conn) {
 		}
 	}
 
+	log.Printf("NEAR: New request to connect to %s:%d", host, port)
 	// 4. Open a streaming session to far
-	n.currentBridge.BridgeAddress = "127.0.0.1"
-	n.currentBridge.BridgePort = 55001
 	stream, err := n.currentBridge.NewNearConn(host, port)
 	if err != nil {
 		conn.Write(replyFail)
+		log.Fatalf("NEAR: Failed to open stream to far: %v", err)
 		return
 	}
 	defer stream.Close()

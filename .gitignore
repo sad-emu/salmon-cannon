@@ -1,3 +1,5 @@
 *.exe
 socks-proxy
 socks-quic
+sc
+scconfig.yml
