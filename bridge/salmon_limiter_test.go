@@ -128,6 +128,6 @@ func TestNewSharedLimiter_NegativeZero(t *testing.T) {
 	// Anything below zero retuns nil
 	sl := NewSharedLimiter(0)
 	if sl != nil && sl.bucket != nil {
-		t.Fatal("expected non-nil SharedLimiter and bucket")
+		t.Fatal("expected nil SharedLimiter and bucket for a <1 limit")
 	}
 }
