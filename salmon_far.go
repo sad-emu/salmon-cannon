@@ -6,6 +6,7 @@ import (
 	"log"
 	"salmoncannon/bridge"
 	"salmoncannon/config"
+	"salmoncannon/utils"
 
 	quic "github.com/quic-go/quic-go"
 )
@@ -14,13 +15,10 @@ type SalmonFar struct {
 	farBridge *bridge.SalmonBridge
 }
 
-// TODO - for bridge types it should start listeners for them
-// near should be able to make requests through them
-
 func NewSalmonFar(config *config.SalmonBridgeConfig) (*SalmonFar, error) {
 
 	tlscfg := &tls.Config{
-		Certificates: []tls.Certificate{generateSelfSignedCert()},
+		Certificates: []tls.Certificate{utils.GenerateSelfSignedCert()},
 		NextProtos:   []string{config.Name},
 	}
 

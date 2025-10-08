@@ -1,4 +1,4 @@
-package main
+package utils
 
 import (
 	"bytes"
@@ -34,7 +34,7 @@ func nextID() uint32 {
 	return atomic.AddUint32(&globalConnID, 1)
 }
 
-func generateSelfSignedCert() tls.Certificate {
+func GenerateSelfSignedCert() tls.Certificate {
 	priv, _ := rsa.GenerateKey(rand.Reader, 2048)
 	template := x509.Certificate{
 		SerialNumber: big.NewInt(1),

@@ -143,16 +143,16 @@ func TestGlobalLogConfig_Defaults(t *testing.T) {
 	if cfg.GlobalLog == nil {
 		t.Fatalf("GlobalLog should not be nil after SetDefaults")
 	}
-	if cfg.GlobalLog.Filename != "sc.log" {
-		t.Errorf("Filename default not set, got %q", cfg.GlobalLog.Filename)
+	if cfg.GlobalLog.Filename != "" {
+		t.Errorf("Filename default should not be set, got %q", cfg.GlobalLog.Filename)
 	}
-	if cfg.GlobalLog.MaxSize != 20 {
+	if cfg.GlobalLog.MaxSize != 1 {
 		t.Errorf("MaxSize default not set, got %d", cfg.GlobalLog.MaxSize)
 	}
-	if cfg.GlobalLog.MaxBackups != 5 {
+	if cfg.GlobalLog.MaxBackups != 1 {
 		t.Errorf("MaxBackups default not set, got %d", cfg.GlobalLog.MaxBackups)
 	}
-	if cfg.GlobalLog.MaxAge != 28 {
+	if cfg.GlobalLog.MaxAge != 1 {
 		t.Errorf("MaxAge default not set, got %d", cfg.GlobalLog.MaxAge)
 	}
 	if cfg.GlobalLog.Compress != false {

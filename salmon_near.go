@@ -13,6 +13,7 @@ import (
 
 type SalmonNear struct {
 	currentBridge *bridge.SalmonBridge
+	bridgeName    string
 }
 
 func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
@@ -39,21 +40,22 @@ func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
 
 	near := &SalmonNear{
 		currentBridge: salmonBridge,
+		bridgeName:    config.Name,
 	}
 
 	return near, nil
 }
 
-func NewSalmonNearFromFar(salmonFar *SalmonFar) *SalmonNear {
+// func NewSalmonNearFromFar(salmonFar *SalmonFar) *SalmonNear {
 
-	salmonBridge := salmonFar.farBridge
+// 	salmonBridge := salmonFar.farBridge
 
-	near := &SalmonNear{
-		currentBridge: salmonBridge,
-	}
+// 	near := &SalmonNear{
+// 		currentBridge: salmonBridge,
+// 	}
 
-	return near
-}
+// 	return near
+// }
 
 func (n *SalmonNear) HandleRequest(conn net.Conn) {
 	defer conn.Close()
@@ -65,6 +67,7 @@ func (n *SalmonNear) HandleRequest(conn net.Conn) {
 		return
 	}
 	if buf[0] != socksVersion5 {
+		log.Fatalf("NEAR: Bridge %s recieved unsupported SOCKS version: %d", n.bridgeName, buf[0])
 		return // Only SOCKS5
 	}
 
@@ -114,13 +117,13 @@ func (n *SalmonNear) HandleRequest(conn net.Conn) {
 	}
 
 	// This is really noisy
-	// log.Printf("NEAR: New request to connect to %s:%d", host, port)
+	// log.Printf("NEAR: New request on bridge %s to connect to %s:%d", n.bridgeName, host, port)
 
 	// 4. Open a streaming session to far
 	stream, err := n.currentBridge.NewNearConn(host, port)
 	if err != nil {
 		conn.Write(replyFail)
-		log.Fatalf("NEAR: Failed to open stream to far: %v", err)
+		log.Fatalf("NEAR: Bridge %s Failed to open stream to far: %v", n.bridgeName, err)
 		return
 	}
 	defer stream.Close()
