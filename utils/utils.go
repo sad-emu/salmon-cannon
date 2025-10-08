@@ -8,31 +8,28 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
-	"log"
 	"math/big"
-	"strconv"
-	"sync/atomic"
 	"time"
 )
 
-// logError logs errors with a standard format.
-func logError(err error) {
-	if err != nil {
-		log.Printf("[ERROR] %v", err)
-	}
-}
+// // logError logs errors with a standard format.
+// func logError(err error) {
+// 	if err != nil {
+// 		log.Printf("[ERROR] %v", err)
+// 	}
+// }
 
-// itoa converts an int to string.
-func itoa(i int) string {
-	return strconv.Itoa(i)
-}
+// // itoa converts an int to string.
+// func itoa(i int) string {
+// 	return strconv.Itoa(i)
+// }
 
-var globalConnID uint32
+// var globalConnID uint32
 
-// Previously used for tcp multiplexing
-func nextID() uint32 {
-	return atomic.AddUint32(&globalConnID, 1)
-}
+// // Previously used for tcp multiplexing
+// func nextID() uint32 {
+// 	return atomic.AddUint32(&globalConnID, 1)
+// }
 
 func GenerateSelfSignedCert() tls.Certificate {
 	priv, _ := rsa.GenerateKey(rand.Reader, 2048)
