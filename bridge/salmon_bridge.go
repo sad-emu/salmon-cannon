@@ -15,6 +15,7 @@ import (
 type SalmonBridge struct {
 	BridgePort    int
 	BridgeAddress string
+	BridgeName    string
 
 	mu    sync.Mutex
 	qconn *quic.Conn // single long-lived QUIC connection
@@ -27,9 +28,10 @@ type SalmonBridge struct {
 	tlscfg     *tls.Config
 }
 
-func NewSalmonBridge(address string, port int, tlscfg *tls.Config,
+func NewSalmonBridge(name string, address string, port int, tlscfg *tls.Config,
 	qcfg *quic.Config, sl *SharedLimiter, connector bool) *SalmonBridge {
 	return &SalmonBridge{
+		BridgeName:    name,
 		BridgeAddress: address,
 		BridgePort:    port,
 		tlscfg:        tlscfg,
@@ -67,6 +69,9 @@ func (s *SalmonBridge) ensureQUIC(ctx context.Context) error {
 	}
 	s.bridgeDown = false
 	s.qconn = qc
+
+	log.Printf("NEAR: New bridge for %s connected to far host %s %d", s.BridgeName, s.BridgeAddress, s.BridgePort)
+
 	return nil
 }
 
@@ -78,6 +83,7 @@ func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 	if s.connector {
 		// Only connectors can initiate connections.
 		if err := s.ensureQUIC(context.Background()); err != nil {
+			log.Fatalf("NEAR: Bridge %s creation failed: %v", s.BridgeName, err)
 			return nil, err
 		}
 	}
@@ -123,18 +129,18 @@ func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 
 func (s *SalmonBridge) NewFarListen() error {
 	listenAddr := fmt.Sprintf(":%d", s.BridgePort)
-	fmt.Printf("FAR address farListenAddr: '%s' (len=%d)\n", listenAddr, len(listenAddr))
+	log.Printf("FAR: Address farListenAddr: '%s' (len=%d)\n", listenAddr, len(listenAddr))
 
 	l, err := quic.ListenAddr(listenAddr, s.tlscfg, s.qcfg)
 	if err != nil {
 		return fmt.Errorf("listen QUIC %s: %w", listenAddr, err)
 	}
-	log.Printf("FAR listening on %s", listenAddr)
+	log.Printf("FAR: Bridge %s listening on %s", s.BridgeName, listenAddr)
 
 	for {
 		qc, err := l.Accept(context.Background())
 		if err != nil {
-			log.Printf("FAR: Accept conn error: %v", err)
+			log.Printf("FAR: Bridge %s accept conn error: %v", s.BridgeName, err)
 			continue
 		}
 
@@ -142,7 +148,7 @@ func (s *SalmonBridge) NewFarListen() error {
 			for {
 				stream, err := conn.AcceptStream(context.Background())
 				if err != nil {
-					log.Printf("FAR: AcceptStream closed: %v", err)
+					log.Printf("FAR: Bridge %s AcceptStream closed: %v", s.BridgeName, err)
 					return
 				}
 				go s.handleIncomingStream(stream)
@@ -164,7 +170,7 @@ func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 	// 2) Dial target TCP.
 	dst, err := net.Dial("tcp", target)
 	if err != nil {
-		log.Printf("FAR: dial %s error: %v", target, err)
+		log.Printf("FAR: dial on bridge %s failed %s error: %v", s.BridgeName, target, err)
 		stream.CancelRead(0)
 		stream.Close()
 		return

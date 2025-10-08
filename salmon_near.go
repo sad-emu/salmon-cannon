@@ -35,7 +35,7 @@ func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
 		NextProtos:         []string{config.Name},
 	}
 
-	salmonBridge := bridge.NewSalmonBridge(bridgeAddress, bridgePort, tlscfg, qcfg, sl, config.Connect)
+	salmonBridge := bridge.NewSalmonBridge(config.Name, bridgeAddress, bridgePort, tlscfg, qcfg, sl, config.Connect)
 
 	near := &SalmonNear{
 		currentBridge: salmonBridge,
@@ -113,7 +113,9 @@ func (n *SalmonNear) HandleRequest(conn net.Conn) {
 		}
 	}
 
-	log.Printf("NEAR: New request to connect to %s:%d", host, port)
+	// This is really noisy
+	// log.Printf("NEAR: New request to connect to %s:%d", host, port)
+
 	// 4. Open a streaming session to far
 	stream, err := n.currentBridge.NewNearConn(host, port)
 	if err != nil {

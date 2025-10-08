@@ -10,6 +10,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// GlobalLogConfig holds optional global log file settings
+type GlobalLogConfig struct {
+	Filename   string `yaml:"Filename,omitempty"`
+	MaxSize    int    `yaml:"MaxSize,omitempty"` // megabytes
+	MaxBackups int    `yaml:"MaxBackups,omitempty"`
+	MaxAge     int    `yaml:"MaxAge,omitempty"` // days
+	Compress   bool   `yaml:"Compress,omitempty"`
+}
+
 // DurationString supports "10s", "5m" (only lowercase s/m)
 type DurationString time.Duration
 
@@ -99,7 +108,8 @@ type SalmonBridgeConfig struct {
 
 // Config holds all SalmonBridgeConfigs
 type SalmonCannonConfig struct {
-	Bridges []SalmonBridgeConfig `yaml:"salmonbridges"`
+	Bridges   []SalmonBridgeConfig `yaml:"salmonbridges"`
+	GlobalLog *GlobalLogConfig     `yaml:"globallog,omitempty"`
 }
 
 // SetDefaults sets default values for optional fields
@@ -123,6 +133,30 @@ func (c *SalmonCannonConfig) SetDefaults() {
 		if b.TotalBandwidthLimit == 0 {
 			c.Bridges[i].TotalBandwidthLimit = -1
 		}
+	}
+	// Set global log defaults if not provided
+	if c.GlobalLog == nil {
+		c.GlobalLog = &GlobalLogConfig{
+			Filename:   "", // Empty string means log to stdout
+			MaxSize:    1,
+			MaxBackups: 1,
+			MaxAge:     1,
+			Compress:   false,
+		}
+	} else {
+		if c.GlobalLog.Filename == "" {
+			c.GlobalLog.Filename = "sc.log"
+		}
+		if c.GlobalLog.MaxSize == 0 {
+			c.GlobalLog.MaxSize = 20
+		}
+		if c.GlobalLog.MaxBackups == 0 {
+			c.GlobalLog.MaxBackups = 5
+		}
+		if c.GlobalLog.MaxAge == 0 {
+			c.GlobalLog.MaxAge = 28
+		}
+		// Compress defaults to false, so no need to set
 	}
 }
 

@@ -1,0 +1,8 @@
+salmonbridges:
+  - SBName: "salmon-bridge-test"
+    SBSocksListenPort: 1080
+    SBConnect: true
+    SBNearPort: 55001
+    SBFarPort: 55001
+    SBFarIp: "127.0.0.1"
+    SBIdleTimeout: 10s

@@ -136,3 +136,78 @@ func TestLoadConfig(t *testing.T) {
 		t.Errorf("TotalBandwidthLimit not parsed correctly")
 	}
 }
+
+func TestGlobalLogConfig_Defaults(t *testing.T) {
+	cfg := SalmonCannonConfig{}
+	cfg.SetDefaults()
+	if cfg.GlobalLog == nil {
+		t.Fatalf("GlobalLog should not be nil after SetDefaults")
+	}
+	if cfg.GlobalLog.Filename != "sc.log" {
+		t.Errorf("Filename default not set, got %q", cfg.GlobalLog.Filename)
+	}
+	if cfg.GlobalLog.MaxSize != 20 {
+		t.Errorf("MaxSize default not set, got %d", cfg.GlobalLog.MaxSize)
+	}
+	if cfg.GlobalLog.MaxBackups != 5 {
+		t.Errorf("MaxBackups default not set, got %d", cfg.GlobalLog.MaxBackups)
+	}
+	if cfg.GlobalLog.MaxAge != 28 {
+		t.Errorf("MaxAge default not set, got %d", cfg.GlobalLog.MaxAge)
+	}
+	if cfg.GlobalLog.Compress != false {
+		t.Errorf("Compress default not set, got %v", cfg.GlobalLog.Compress)
+	}
+}
+
+func TestGlobalLogConfig_ParseYAML(t *testing.T) {
+	yamlData := `globallog:
+  Filename: "custom.log"
+  MaxSize: 42
+  MaxBackups: 7
+  MaxAge: 99
+  Compress: true
+salmonbridges:
+  - SBName: test
+    SBSocksListenPort: 1080
+    SBConnect: true
+    SBNearPort: 1099
+    SBFarPort: 1100
+    SBFarIp: "127.0.0.1"
+    SBIdleTimeout: "15s"
+    SBInitialPacketSize: 1500
+    SBRecieveWindow: "20M"
+    SBMaxRecieveWindow: "50M"
+    SBTotalBandwidthLimit: "200M"
+`
+	f, err := os.CreateTemp("", "salmon_config_test.yaml")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(f.Name())
+	f.WriteString(yamlData)
+	f.Close()
+
+	cfg, err := LoadConfig(f.Name())
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg.GlobalLog == nil {
+		t.Fatalf("GlobalLog should not be nil after parsing YAML")
+	}
+	if cfg.GlobalLog.Filename != "custom.log" {
+		t.Errorf("Filename not parsed correctly, got %q", cfg.GlobalLog.Filename)
+	}
+	if cfg.GlobalLog.MaxSize != 42 {
+		t.Errorf("MaxSize not parsed correctly, got %d", cfg.GlobalLog.MaxSize)
+	}
+	if cfg.GlobalLog.MaxBackups != 7 {
+		t.Errorf("MaxBackups not parsed correctly, got %d", cfg.GlobalLog.MaxBackups)
+	}
+	if cfg.GlobalLog.MaxAge != 99 {
+		t.Errorf("MaxAge not parsed correctly, got %d", cfg.GlobalLog.MaxAge)
+	}
+	if cfg.GlobalLog.Compress != true {
+		t.Errorf("Compress not parsed correctly, got %v", cfg.GlobalLog.Compress)
+	}
+}

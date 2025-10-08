@@ -1,0 +1,40 @@
+globallog:
+  Filename: "sc.log"
+  MaxSize: 20        # megabytes
+  MaxBackups: 5
+  MaxAge: 28         # days
+  Compress: false
+
+salmonbridges:
+  - SBName: "salmon-bridge-1-connect-minimal"
+    SBSocksListenPort: 1080
+    SBConnect: true
+    SBNearPort: 55001
+    SBFarPort: 55001
+    SBFarIp: "far-ip-here"
+  - SBName: "salmon-bridge-1-accept-minimal"
+    SBConnect: false
+    SBNearPort: 55001
+    SBFarPort: 55001
+  - SBName: "salmon-bridge-1-connect-full"
+    SBSocksListenPort: 1080
+    SBConnect: true
+    SBNearPort: 55001
+    SBFarPort: 55001
+    SBFarIp: "far-ip-here"
+    SBSocksListenAddress: "127.0.0.1"
+    SBIdleTimeout: 1m
+    SBInitialPacketSize: 1350
+    SBRecieveWindow: 10M
+    SBMaxRecieveWindow: 40M
+    SBTotalBandwidthLimit: 100M
+  - SBName: "salmon-bridge-2-accept-full"
+    SBSocksListenPort: 1081
+    SBConnect: false
+    SBNearPort: 55002
+    SBFarPort: 55002
+    SBIdleTimeout: 1m
+    SBInitialPacketSize: 1350
+    SBRecieveWindow: 10M
+    SBMaxRecieveWindow: 40M
+    SBTotalBandwidthLimit: 100M

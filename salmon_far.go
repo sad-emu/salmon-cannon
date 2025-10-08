@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
+	"log"
 	"salmoncannon/bridge"
 	"salmoncannon/config"
 
@@ -27,13 +28,18 @@ func NewSalmonFar(config *config.SalmonBridgeConfig) (*SalmonFar, error) {
 	sl := bridge.NewSharedLimiter(int64(config.TotalBandwidthLimit))
 
 	qcfg := &quic.Config{
-		// Tune as needed (see near side).
+		MaxIdleTimeout:                 config.IdleTimeout.Duration(),
+		InitialStreamReceiveWindow:     uint64(config.RecieveWindow),
+		MaxStreamReceiveWindow:         uint64(config.MaxRecieveWindow),
+		InitialConnectionReceiveWindow: uint64(config.RecieveWindow),
+		MaxConnectionReceiveWindow:     uint64(config.MaxRecieveWindow),
+		InitialPacketSize:              uint16(config.InitialPacketSize),
 	}
 
 	farListenAddr := fmt.Sprintf(":%d", config.NearPort)
-	fmt.Printf("farListenAddr: '%s' (len=%d)\n", farListenAddr, len(farListenAddr))
+	log.Printf("FAR: Listen address for bridge %s is '%s' (len=%d)\n", config.Name, farListenAddr, len(farListenAddr))
 
-	farBridge := bridge.NewSalmonBridge("", config.NearPort, tlscfg, qcfg, sl, config.Connect)
+	farBridge := bridge.NewSalmonBridge(config.Name, "", config.NearPort, tlscfg, qcfg, sl, config.Connect)
 
 	far := &SalmonFar{
 		farBridge: farBridge,

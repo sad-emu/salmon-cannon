@@ -2,4 +2,6 @@
 socks-proxy
 socks-quic
 sc
-scconfig.yml
+./scconfig.yml
+sc.log
+crash.txt
