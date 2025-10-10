@@ -70,14 +70,14 @@ func main() {
 				log.Printf("NEAR: Starting bridge %s in Near mode...", cfg.Name)
 				near, err := NewSalmonNear(cfg)
 				if err != nil {
-					log.Fatalf("NEAR: Failed to setup salmon near: %v", err)
+					log.Fatalf("NEAR: Failed to setup SalmonNear: %v", err)
 				}
 				initNear(cfg, near)
 			} else {
 				log.Printf("FAR: Starting bridge %s in Far mode...", cfg.Name)
 				far, err := NewSalmonFar(cfg)
 				if err != nil {
-					log.Fatalf("FAR: Failed to start SalmonFar: %v", err)
+					log.Fatalf("FAR: Failed to setup SalmonFar: %v", err)
 				}
 				err = far.farBridge.NewFarListen()
 				if err != nil {

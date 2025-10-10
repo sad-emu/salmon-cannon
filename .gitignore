@@ -5,3 +5,5 @@ sc
 ./scconfig.yml
 sc.log
 crash.txt
+salmon-rate
+ratetest/salmon-rate

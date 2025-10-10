@@ -5,3 +5,7 @@ salmonbridges:
     SBFarPort: 55001
     SBFarIp: "127.0.0.1"
     SBIdleTimeout: 10s
+    SBInitialPacketSize: 8400
+    SBRecieveWindow: 100M
+    SBMaxRecieveWindow: 400M
+    SBTotalBandwidthLimit: 700M
