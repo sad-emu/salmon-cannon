@@ -83,7 +83,7 @@ func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 	if s.connector {
 		// Only connectors can initiate connections.
 		if err := s.ensureQUIC(context.Background()); err != nil {
-			log.Fatalf("NEAR: Bridge %s creation failed: %v", s.BridgeName, err)
+			log.Printf("NEAR: Bridge %s creation failed: %v", s.BridgeName, err)
 			return nil, err
 		}
 	}

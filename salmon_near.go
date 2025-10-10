@@ -67,7 +67,7 @@ func (n *SalmonNear) HandleRequest(conn net.Conn) {
 		return
 	}
 	if buf[0] != socksVersion5 {
-		log.Fatalf("NEAR: Bridge %s recieved unsupported SOCKS version: %d", n.bridgeName, buf[0])
+		log.Printf("NEAR: Bridge %s recieved unsupported SOCKS version: %d", n.bridgeName, buf[0])
 		return // Only SOCKS5
 	}
 
@@ -123,7 +123,7 @@ func (n *SalmonNear) HandleRequest(conn net.Conn) {
 	stream, err := n.currentBridge.NewNearConn(host, port)
 	if err != nil {
 		conn.Write(replyFail)
-		log.Fatalf("NEAR: Bridge %s Failed to open stream to far: %v", n.bridgeName, err)
+		log.Printf("NEAR: Bridge %s Failed to open stream to far: %v", n.bridgeName, err)
 		return
 	}
 	defer stream.Close()

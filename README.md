@@ -66,7 +66,6 @@ salmonbridges:
   - SBName: "salmon-bridge-1-connect-full"
     SBSocksListenPort: 1080
     SBConnect: true
-    SBNearPort: 55001
     SBFarPort: 55001
     SBFarIp: "far-ip-here"
     SBSocksListenAddress: "127.0.0.1"
