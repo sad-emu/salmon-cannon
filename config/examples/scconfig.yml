@@ -19,6 +19,7 @@ salmonbridges:
     SBConnect: true
     SBNearPort: 55001
     SBFarIp: "far-ip-here"
+    SBHttpListenPort: 8080
     SBSocksListenAddress: "127.0.0.1"
     SBIdleTimeout: 1m
     SBInitialPacketSize: 1350

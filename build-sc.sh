@@ -1,1 +1,1 @@
-go build -o salmon-rate
+go build -o sc

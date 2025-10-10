@@ -135,3 +135,72 @@ func (n *SalmonNear) HandleRequest(conn net.Conn) {
 	go func() { io.Copy(stream, conn) }()
 	io.Copy(conn, stream)
 }
+
+// HandleHTTP implements a minimal HTTP CONNECT proxy
+func (n *SalmonNear) HandleHTTP(conn net.Conn) {
+	defer conn.Close()
+	// Minimal parse: read first line
+	buf := make([]byte, 4096)
+	nread, err := conn.Read(buf)
+	if err != nil {
+		return
+	}
+	lineEnd := -1
+	for i := 0; i < nread-1; i++ {
+		if buf[i] == '\r' && buf[i+1] == '\n' {
+			lineEnd = i
+			break
+		}
+	}
+	if lineEnd < 0 {
+		return
+	}
+	line := string(buf[:lineEnd])
+	// Expect: CONNECT host:port HTTP/1.1
+	var method, target, proto string
+	_, _ = method, proto
+	// naive split
+	parts := make([]string, 0, 3)
+	start := 0
+	for i := 0; i <= len(line); i++ {
+		if i == len(line) || line[i] == ' ' {
+			if i > start {
+				parts = append(parts, line[start:i])
+			}
+			start = i + 1
+		}
+	}
+	if len(parts) < 2 || parts[0] != "CONNECT" {
+		conn.Write([]byte("HTTP/1.1 405 Method Not Allowed\r\n\r\n"))
+		return
+	}
+	target = parts[1]
+	// parse host:port
+	host, portStr, err := net.SplitHostPort(target)
+	if err != nil {
+		conn.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\n"))
+		return
+	}
+	// drain remaining headers until CRLFCRLF
+	// simplistic: if more bytes were read beyond first line, keep them in a buffer to forward after connect
+	// For CONNECT, there should be only headers and then raw tunnel.
+
+	// Open QUIC stream to far
+	// parse port
+	port, err := net.LookupPort("tcp", portStr)
+	if err != nil {
+		conn.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\n"))
+		return
+	}
+	stream, err := n.currentBridge.NewNearConn(host, port)
+	if err != nil {
+		conn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		return
+	}
+	defer stream.Close()
+	// respond OK
+	conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
+	// pipe
+	go func() { io.Copy(stream, conn) }()
+	io.Copy(conn, stream)
+}

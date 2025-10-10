@@ -1,6 +1,7 @@
 salmonbridges:
   - SBName: "salmon-bridge-test"
     SBSocksListenPort: 1080
+    SBHttpListenPort: 8080
     SBConnect: true
     SBFarPort: 55001
     SBFarIp: "127.0.0.1"

@@ -11,7 +11,7 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-const VERSION = "0.0.2"
+const VERSION = "0.0.3"
 
 func initNear(cfg *config.SalmonBridgeConfig, near *SalmonNear) {
 	log.Printf("NEAR: Initializing near side SOCKS listener for bridge %s", cfg.Name)
@@ -28,6 +28,27 @@ func initNear(cfg *config.SalmonBridgeConfig, near *SalmonNear) {
 			continue
 		}
 		go near.HandleRequest(conn)
+	}
+}
+
+func initHTTPNear(cfg *config.SalmonBridgeConfig, near *SalmonNear) {
+	if cfg.HttpListenPort <= 0 {
+		return
+	}
+	addr := cfg.SocksListenAddress + ":" + strconv.Itoa(cfg.HttpListenPort)
+	log.Printf("NEAR: Initializing HTTP proxy listener for bridge %s on %s", cfg.Name, addr)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Fatalf("NEAR: Failed to listen HTTP on %s: %v", addr, err)
+	}
+	log.Printf("NEAR: HTTP proxy listening on %s", addr)
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			log.Printf("NEAR: HTTP accept error: %v", err)
+			continue
+		}
+		go near.HandleHTTP(conn)
 	}
 }
 
@@ -71,6 +92,10 @@ func main() {
 				near, err := NewSalmonNear(cfg)
 				if err != nil {
 					log.Fatalf("NEAR: Failed to setup SalmonNear: %v", err)
+				}
+				if cfg.HttpListenPort > 0 {
+					log.Printf("NEAR: HTTP proxy enabled on port %d", cfg.HttpListenPort)
+					go initHTTPNear(cfg, near)
 				}
 				initNear(cfg, near)
 			} else {

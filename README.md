@@ -65,6 +65,7 @@ salmonbridges:
 salmonbridges:
   - SBName: "salmon-bridge-1-connect-full"
     SBSocksListenPort: 1080
+    SBHttpListenPort: 8080
     SBConnect: true
     SBFarPort: 55001
     SBFarIp: "far-ip-here"
@@ -100,6 +101,7 @@ salmonbridges:
 - `SBName`: Bridge name (string)
 - `SBSocksListenPort`: SOCKS5 listen port (int)
 - `SBSocksListenAddress`: SOCKS5 listen address (string, optional)
+- `SBHttpListenPort`: HTTP proxy listen port on near node (int, optional; 0 disables)
 - `SBConnect`: If true, acts as near node (initiates QUIC connection)
 - `SBNearPort`: QUIC port on near node - Far ONLY (int)
 - `SBFarPort`: QUIC port on far node - Near ONLY (int)

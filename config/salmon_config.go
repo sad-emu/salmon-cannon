@@ -99,6 +99,7 @@ type SalmonBridgeConfig struct {
 	FarIp           string `yaml:"SBFarIp"`
 
 	SocksListenAddress  string         `yaml:"SBSocksListenAddress,omitempty"`  // e.g. "127.0.0.1"
+	HttpListenPort      int            `yaml:"SBHttpListenPort,omitempty"`      // optional HTTP proxy listen port (near only)
 	IdleTimeout         DurationString `yaml:"SBIdleTimeout,omitempty"`         // default "10s"
 	InitialPacketSize   int            `yaml:"SBInitialPacketSize,omitempty"`   // default 1350
 	RecieveWindow       SizeString     `yaml:"SBRecieveWindow,omitempty"`       // default "10M"
