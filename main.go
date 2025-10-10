@@ -11,7 +11,7 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-const VERSION = "0.0.1"
+const VERSION = "0.0.2"
 
 func initNear(cfg *config.SalmonBridgeConfig, near *SalmonNear) {
 	log.Printf("NEAR: Initializing near side SOCKS listener for bridge %s", cfg.Name)

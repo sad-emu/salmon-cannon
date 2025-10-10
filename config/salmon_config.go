@@ -94,8 +94,8 @@ type SalmonBridgeConfig struct {
 	Name            string `yaml:"SBName"`
 	SocksListenPort int    `yaml:"SBSocksListenPort"`
 	Connect         bool   `yaml:"SBConnect"`
-	NearPort        int    `yaml:"SBNearPort"`
-	FarPort         int    `yaml:"SBFarPort"`
+	NearPort        int    `yaml:"SBNearPort,omitempty"`
+	FarPort         int    `yaml:"SBFarPort,omitempty"`
 	FarIp           string `yaml:"SBFarIp"`
 
 	SocksListenAddress  string         `yaml:"SBSocksListenAddress,omitempty"`  // e.g. "127.0.0.1"
@@ -118,6 +118,18 @@ func (c *SalmonCannonConfig) SetDefaults() {
 		if len(b.SocksListenAddress) == 0 {
 			c.Bridges[i].SocksListenAddress = "127.0.0.1"
 		}
+
+		// These values are never used for these types
+		if b.Connect == true {
+			if b.NearPort == 0 {
+				c.Bridges[i].NearPort = b.FarPort
+			}
+		} else {
+			if b.FarPort == 0 {
+				c.Bridges[i].FarPort = b.NearPort
+			}
+		}
+
 		if b.IdleTimeout == 0 {
 			c.Bridges[i].IdleTimeout = DurationString(10 * time.Second)
 		}

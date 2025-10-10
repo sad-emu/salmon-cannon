@@ -92,7 +92,6 @@ func TestLoadConfig(t *testing.T) {
   - SBName: test
     SBSocksListenPort: 1080
     SBConnect: true
-    SBNearPort: 1099
     SBFarPort: 1100
     SBFarIp: "127.0.0.1"
     SBIdleTimeout: "15s"
@@ -117,7 +116,7 @@ func TestLoadConfig(t *testing.T) {
 		t.Errorf("expected 1 bridge, got %d", len(cfg.Bridges))
 	}
 	b := cfg.Bridges[0]
-	if b.Name != "test" || b.SocksListenPort != 1080 || b.Connect != true || b.NearPort != 1099 || b.FarPort != 1100 || b.FarIp != "127.0.0.1" {
+	if b.Name != "test" || b.SocksListenPort != 1080 || b.Connect != true || b.FarPort != 1100 || b.FarIp != "127.0.0.1" {
 		t.Errorf("bridge fields not parsed correctly: %+v", b)
 	}
 	if b.IdleTimeout != DurationString(15*time.Second) {
@@ -171,7 +170,6 @@ salmonbridges:
   - SBName: test
     SBSocksListenPort: 1080
     SBConnect: true
-    SBNearPort: 1099
     SBFarPort: 1100
     SBFarIp: "127.0.0.1"
     SBIdleTimeout: "15s"
