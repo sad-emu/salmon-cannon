@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 	"salmoncannon/config"
-	"sync"
 	"time"
 )
 
@@ -48,17 +47,11 @@ func NewSalmonRateTester(cfg *config.SalmonCannonConfig) *SalmonRateTester {
 }
 
 func (rt *SalmonRateTester) Run() {
-	var wg sync.WaitGroup
 	for _, bridge := range rt.cfg.Bridges {
 		if bridge.Connect {
-			wg.Add(1)
-			go func(b config.SalmonBridgeConfig) {
-				defer wg.Done()
-				rt.testBridge(b)
-			}(bridge)
+			rt.testBridge(bridge)
 		}
 	}
-	wg.Wait()
 	log.Println("RateTester finished all tests.")
 }
 

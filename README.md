@@ -83,7 +83,6 @@ salmonbridges:
     SBSocksListenPort: 1081
     SBConnect: false
     SBNearPort: 55002
-    SBFarPort: 55002
     SBIdleTimeout: 1m
     SBInitialPacketSize: 1350
     SBRecieveWindow: 10M
@@ -102,8 +101,8 @@ salmonbridges:
 - `SBSocksListenPort`: SOCKS5 listen port (int)
 - `SBSocksListenAddress`: SOCKS5 listen address (string, optional)
 - `SBConnect`: If true, acts as near node (initiates QUIC connection)
-- `SBNearPort`: QUIC port on near node (int)
-- `SBFarPort`: QUIC port on far node (int)
+- `SBNearPort`: QUIC port on near node - Far ONLY (int)
+- `SBFarPort`: QUIC port on far node - Near ONLY (int)
 - `SBFarIp`: Far node IP address (string, required for connect mode)
 - `SBIdleTimeout`: Idle timeout (duration e.g. 10s or 2m, optional)
 - `SBInitialPacketSize`: QUIC initial packet size (int e.g. 50M, optional)
@@ -128,6 +127,20 @@ globallog:
 - `MaxBackups`: Maximum number of backup log files to keep (int)
 - `MaxAge`: Maximum number of days to retain old log files (int, days)
 - `Compress`: Whether to compress rotated log files (bool)
+
+## Ratetest App
+
+Built with the 'build-ratetest.sh' command. It requires a valid scconfig.yml file to configure the tests.
+
+### Modes
+#### Listen
+./salmon-rate -mode=listen
+
+Listens on port 5555 for incomming TCP connections on 127.0.0.1
+#### Test
+./salmon-rate -mode=test
+
+Uses the config to start a 10 sec ratetest on all of the salmonbridges configured with 'connect: true'.
 
 ## Common Issues
 ### UDP Init Error  
