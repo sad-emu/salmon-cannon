@@ -10,14 +10,14 @@ SalmonCannon (sc) is a SOCKS5 proxy that tunnels TCP traffic between a 'near' no
 - **SOCKS5 Proxy:** Accepts TCP connections from SOCKS5 clients.
 - **QUIC Tunneling:** Transports TCP streams over QUIC between near and far nodes.
 - **Configurable:** Flexible YAML configuration for multiple bridges and advanced options.
-- **TCP** Supports TCP through a SOCKS5 interface
-- **HTTP** Can proxy HTTP traffic directly
+- **TCP:** Supports TCP through a SOCKS5 interface
+- **HTTP:** Can proxy HTTP traffic directly
 
 ## TODO's
-- **UDP** UDP support through the SOCKS5 interface is TODO
-- **SOCKS5 & HTTP Auth** Support SOCKS5 and HTTP proxy authentication is TODO
-- **IP Filtering** Filtering incoming and outgoing traffic by IP is TODO
-- **Bridge TLS config** QUIC TLS is currently hardcoded to use self-signed certs. Allowing own certs with 2way TLS & DN filtering is TODO
+- **UDP:** UDP support through the SOCKS5 interface is TODO
+- **SOCKS5 & HTTP Auth:** Support SOCKS5 and HTTP proxy authentication is TODO
+- **IP Filtering:** Filtering incoming and outgoing traffic by IP is TODO
+- **Bridge TLS:** QUIC TLS is currently hardcoded to use self-signed certs. Allowing own certs with 2way TLS & DN filtering is TODO
 
 ## Architecture
 - **Near Node:** Listens for SOCKS5 connections and forwards them to the far node over QUIC.
