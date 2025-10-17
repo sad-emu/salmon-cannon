@@ -40,12 +40,12 @@ RATETEST_BIN="$BIN_DIR/salmon-rate"
 
 # netem settings (Example 1 - hostile-ish)
 NETIF="${NETIF:-lo}"
-NETEM_DELAY="20ms"
-NETEM_JITTER="10ms"
-NETEM_LOSS="20% 30%"
-NETEM_REORDER="20% 30%"
-NETEM_DUP="1%"
-NETEM_CORRUPT="1%"
+NETEM_DELAY="200ms"
+NETEM_JITTER="100ms"
+NETEM_LOSS="15% 15%"
+NETEM_REORDER="15% 15%"
+NETEM_DUP="3%"
+NETEM_CORRUPT="3%"
 
 OLD_QDISC_FILE="$WORKDIR/old_qdisc.txt"
 
@@ -124,9 +124,6 @@ salmonbridges:
     SBSocksListenAddress: "127.0.0.1"
     SBIdleTimeout: 10s
     SBInitialPacketSize: 1350
-    SBRecieveWindow: 10M
-    SBMaxRecieveWindow: 40M
-    SBTotalBandwidthLimit: 100M
 globallog:
   Filename: "sc.log"
   MaxSize: 5
@@ -147,9 +144,6 @@ salmonbridges:
     SBFarIp: "127.0.0.1"
     SBIdleTimeout: 10s
     SBInitialPacketSize: 1350
-    SBRecieveWindow: 10M
-    SBMaxRecieveWindow: 40M
-    SBTotalBandwidthLimit: 100M
 globallog:
   Filename: "sc.log"
   MaxSize: 5
