@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const VERSION = "0.0.1"
+const VERSION = "0.0.2"
 
 func main() {
 	log.Printf("Salmon RateTest version %s starting...", VERSION)
@@ -81,9 +81,7 @@ func (rt *SalmonRateTester) RunListen() {
 					}
 					return
 				}
-				// if string(buf[:n]) == "ping\n" {
-				// 	c.Write([]byte("pong\n"))
-				// }
+				// accept and drop data
 			}
 		}(conn)
 	}
@@ -102,7 +100,6 @@ func (rt *SalmonRateTester) testBridge(b config.SalmonBridgeConfig) {
 	defer conn.Close()
 
 	// SOCKS5 handshake (no authentication)
-	// Send: version 5, 1 method, noauth (0x00)
 	handshake := []byte{0x05, 0x01, 0x00}
 	if _, err := conn.Write(handshake); err != nil {
 		log.Printf("SOCKS handshake write error: %v", err)
@@ -145,54 +142,36 @@ func (rt *SalmonRateTester) testBridge(b config.SalmonBridgeConfig) {
 	timeSec := 10
 	log.Printf("Bridge %s: SOCKS CONNECT successful", b.Name)
 	log.Printf("Bridge %s: Starting %d sec test...", b.Name, timeSec)
-	// 2. nSec ratetest: send garbage
 
+	// 2. nSec ratetest: send garbage
 	end := time.Now().Add(time.Duration(timeSec) * time.Second)
 	total := 0
 	buf := make([]byte, 4096)
 	rand.Read(buf)
+
+	start := time.Now()
 	for time.Now().Before(end) {
+		// limit blocking per write so extreme netem doesn't stall the loop for many seconds
+		conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 		n, err := conn.Write(buf)
 		if err != nil {
+			// write timeout or other error; log and continue until the end time
 			log.Printf("Write error during ratetest: %v", err)
-			break
+			// small sleep to avoid tight error loop if the connection is blocked/broken
+			time.Sleep(50 * time.Millisecond)
+			continue
+		} else {
+			total += n
 		}
-		total += n
+	}
+	elapsed := time.Since(start)
+	secs := elapsed.Seconds()
+	if secs <= 0 {
+		secs = float64(timeSec)
 	}
 
-	kbps := float64(total) * 8 / 1024 / float64(timeSec)
-	mbps := float64(total) * 8 / (1024 * 1024) / float64(timeSec)
-	gbps := float64(total) * 8 / (1024 * 1024 * 1024) / float64(timeSec)
-	log.Printf("Bridge %s: Sent %d bytes in %d secs \n -   %.2f kbps\n -   %.2f mbps\n -   %.4f gbps", b.Name, total, timeSec, kbps, mbps, gbps)
-
-	// // 3. 10 pings: send 'ping', expect 'pong', measure latency
-	// var latencies []time.Duration
-	// for i := 0; i < 10; i++ {
-	// 	start := time.Now()
-	// 	if _, err := conn.Write([]byte("ping\n")); err != nil {
-	// 		log.Printf("Ping write error: %v", err)
-	// 		break
-	// 	}
-	// 	reply := make([]byte, 16)
-	// 	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	// 	n, err := conn.Read(reply)
-	// 	if err != nil {
-	// 		log.Printf("Ping read error: %v", err)
-	// 		break
-	// 	}
-	// 	if string(reply[:n]) != "pong\n" {
-	// 		log.Printf("Unexpected ping reply: %q", reply[:n])
-	// 		break
-	// 	}
-	// 	latencies = append(latencies, time.Since(start))
-	// 	time.Sleep(100 * time.Millisecond)
-	// }
-	// if len(latencies) > 0 {
-	// 	var sum time.Duration
-	// 	for _, l := range latencies {
-	// 		sum += l
-	// 	}
-	// 	avg := sum / time.Duration(len(latencies))
-	// 	log.Printf("Bridge %s: Average ping latency: %v", b.Name, avg)
-	// }
+	kbps := float64(total) * 8 / 1024 / secs
+	mbps := float64(total) * 8 / (1024 * 1024) / secs
+	gbps := float64(total) * 8 / (1024 * 1024 * 1024) / secs
+	log.Printf("Bridge %s: Sent %d bytes in %.2f secs \n -   %.2f kbps\n -   %.2f mbps\n -   %.4f gbps", b.Name, total, secs, kbps, mbps, gbps)
 }
