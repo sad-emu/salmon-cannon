@@ -76,12 +76,6 @@ func TestSetDefaults(t *testing.T) {
 	if b.InitialPacketSize != 1350 {
 		t.Errorf("InitialPacketSize default not set")
 	}
-	if b.RecieveWindow != SizeString(175<<20) {
-		t.Errorf("RecieveWindow default not set")
-	}
-	if b.MaxRecieveWindow != SizeString(400<<20) {
-		t.Errorf("MaxRecieveWindow default not set")
-	}
 	if b.TotalBandwidthLimit != -1 {
 		t.Errorf("TotalBandwidthLimit default not set")
 	}
@@ -125,13 +119,7 @@ func TestLoadConfig(t *testing.T) {
 	if b.InitialPacketSize != 1500 {
 		t.Errorf("InitialPacketSize not parsed correctly")
 	}
-	if b.RecieveWindow != SizeString(20<<20) {
-		t.Errorf("RecieveWindow not parsed correctly")
-	}
-	if b.MaxRecieveWindow != SizeString(50<<20) {
-		t.Errorf("MaxRecieveWindow not parsed correctly")
-	}
-	if b.TotalBandwidthLimit != SizeString(200<<20) {
+	if b.TotalBandwidthLimit != SizeString(200<<20)/8 {
 		t.Errorf("TotalBandwidthLimit not parsed correctly")
 	}
 }

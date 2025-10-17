@@ -102,8 +102,6 @@ type SalmonBridgeConfig struct {
 	HttpListenPort      int            `yaml:"SBHttpListenPort,omitempty"`      // optional HTTP proxy listen port (near only)
 	IdleTimeout         DurationString `yaml:"SBIdleTimeout,omitempty"`         // default "10s"
 	InitialPacketSize   int            `yaml:"SBInitialPacketSize,omitempty"`   // default 1350
-	RecieveWindow       SizeString     `yaml:"SBRecieveWindow,omitempty"`       // default "10M"
-	MaxRecieveWindow    SizeString     `yaml:"SBMaxRecieveWindow,omitempty"`    // default "40M"
 	TotalBandwidthLimit SizeString     `yaml:"SBTotalBandwidthLimit,omitempty"` // default "100M"
 }
 
@@ -137,14 +135,10 @@ func (c *SalmonCannonConfig) SetDefaults() {
 		if b.InitialPacketSize == 0 {
 			c.Bridges[i].InitialPacketSize = 1350
 		}
-		if b.RecieveWindow == 0 {
-			c.Bridges[i].RecieveWindow = SizeString(175 << 20) // 175M
-		}
-		if b.MaxRecieveWindow == 0 {
-			c.Bridges[i].MaxRecieveWindow = SizeString(400 << 20) // 400M
-		}
 		if b.TotalBandwidthLimit == 0 {
 			c.Bridges[i].TotalBandwidthLimit = -1
+		} else {
+			c.Bridges[i].TotalBandwidthLimit = b.TotalBandwidthLimit / 8
 		}
 	}
 	// Set global log defaults if not provided

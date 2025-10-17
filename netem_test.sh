@@ -123,7 +123,7 @@ salmonbridges:
     SBSocksListenPort: 0
     SBSocksListenAddress: "127.0.0.1"
     SBIdleTimeout: 10s
-    SBInitialPacketSize: 1350
+    SBInitialPacketSize: 1450
 globallog:
   Filename: "sc.log"
   MaxSize: 5
@@ -143,7 +143,7 @@ salmonbridges:
     SBFarPort: ${FAR_PORT}
     SBFarIp: "127.0.0.1"
     SBIdleTimeout: 10s
-    SBInitialPacketSize: 1350
+    SBInitialPacketSize: 1450
 globallog:
   Filename: "sc.log"
   MaxSize: 5

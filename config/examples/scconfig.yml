@@ -23,8 +23,6 @@ salmonbridges:
     SBSocksListenAddress: "127.0.0.1"
     SBIdleTimeout: 1m
     SBInitialPacketSize: 1350
-    SBRecieveWindow: 10M
-    SBMaxRecieveWindow: 40M
     SBTotalBandwidthLimit: 100M
   - SBName: "salmon-bridge-2-accept-full"
     SBSocksListenPort: 1081
@@ -32,6 +30,4 @@ salmonbridges:
     SBNearPort: 55002
     SBIdleTimeout: 1m
     SBInitialPacketSize: 1350
-    SBRecieveWindow: 10M
-    SBMaxRecieveWindow: 40M
     SBTotalBandwidthLimit: 100M

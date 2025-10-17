@@ -27,10 +27,10 @@ func NewSalmonFar(config *config.SalmonBridgeConfig) (*SalmonFar, error) {
 
 	qcfg := &quic.Config{
 		MaxIdleTimeout:                 config.IdleTimeout.Duration(),
-		InitialStreamReceiveWindow:     uint64(config.RecieveWindow),
-		MaxStreamReceiveWindow:         uint64(config.MaxRecieveWindow),
-		InitialConnectionReceiveWindow: uint64(config.RecieveWindow),
-		MaxConnectionReceiveWindow:     uint64(config.MaxRecieveWindow),
+		InitialStreamReceiveWindow:     uint64(1024 * 1024 * 50 * 8),
+		MaxStreamReceiveWindow:         uint64(1024 * 1024 * 400 * 8),
+		InitialConnectionReceiveWindow: uint64(1024 * 1024 * 50 * 8),
+		MaxConnectionReceiveWindow:     uint64(1024 * 1024 * 400 * 8),
 		InitialPacketSize:              uint16(config.InitialPacketSize),
 	}
 

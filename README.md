@@ -79,8 +79,6 @@ salmonbridges:
     SBSocksListenAddress: "127.0.0.1"
     SBIdleTimeout: 1m
     SBInitialPacketSize: 1350
-    SBRecieveWindow: 10M
-    SBMaxRecieveWindow: 40M
     SBTotalBandwidthLimit: 100M
 ```
 
@@ -93,8 +91,6 @@ salmonbridges:
     SBNearPort: 55002
     SBIdleTimeout: 1m
     SBInitialPacketSize: 1350
-    SBRecieveWindow: 10M
-    SBMaxRecieveWindow: 40M
     SBTotalBandwidthLimit: 100M
 ```
 
@@ -115,8 +111,6 @@ salmonbridges:
 - `SBFarIp`: Far node IP address (string, required for connect mode)
 - `SBIdleTimeout`: Idle timeout (duration e.g. 10s or 2m, optional)
 - `SBInitialPacketSize`: QUIC initial packet size (int e.g. 50M, optional)
-- `SBRecieveWindow`: QUIC receive window (size e.g. 50M, optional)
-- `SBMaxRecieveWindow`: QUIC max receive window (size e.g. 50M, optional)
 - `SBTotalBandwidthLimit`: Bandwidth limit (size e.g. 100M or 1G, optional)
 
 ### Logging Configuration (`globallog`)

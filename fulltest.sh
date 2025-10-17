@@ -58,8 +58,6 @@ salmonbridges:
     SBSocksListenAddress: "127.0.0.1"
     SBIdleTimeout: 10s
     SBInitialPacketSize: 1350
-    SBRecieveWindow: 10M
-    SBMaxRecieveWindow: 40M
 globallog:
   Filename: "sc.log"
   MaxSize: 5
@@ -79,8 +77,6 @@ salmonbridges:
     SBFarIp: "127.0.0.1"
     SBIdleTimeout: 10s
     SBInitialPacketSize: 1350
-    SBRecieveWindow: 10M
-    SBMaxRecieveWindow: 40M
 globallog:
   Filename: "sc.log"
   MaxSize: 5
