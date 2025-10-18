@@ -12,11 +12,11 @@ SalmonCannon (sc) is a SOCKS5 proxy that tunnels TCP traffic between a 'near' no
 - **Configurable:** Flexible YAML configuration for multiple bridges and advanced options.
 - **TCP:** Supports TCP through a SOCKS5 interface
 - **HTTP:** Can proxy HTTP traffic directly
+- **Optional IP Filtering:** Can filter near clients, destination connections and bridge connections via IPs & Hostnames
 
 ## TODO's
 - **UDP:** UDP support through the SOCKS5 interface is TODO
 - **SOCKS5 & HTTP Auth:** Support SOCKS5 and HTTP proxy authentication is TODO
-- **IP Filtering:** Filtering incoming and outgoing traffic by IP is TODO
 - **Bridge TLS:** QUIC TLS is currently hardcoded to use self-signed certs. Allowing own certs with 2way TLS & DN filtering is TODO
 
 ## Architecture
@@ -35,7 +35,7 @@ To run:
 #### Logging
 If no logging config is provided the sc binary with log to stdout.
 ```yaml
-globallog:
+GlobalLog:
   Filename: "sc.log"
   MaxSize: 20        # megabytes
   MaxBackups: 5
@@ -47,7 +47,7 @@ globallog:
 
 #### Near Node (Connect Mode)
 ```yaml
-salmonbridges:
+SalmonBridges:
   - SBName: "salmon-bridge-1-connect-minimal"
     SBSocksListenPort: 1080
     SBConnect: true
@@ -58,7 +58,7 @@ salmonbridges:
 
 #### Far Node (Accept Mode)
 ```yaml
-salmonbridges:
+SalmonBridges:
   - SBName: "salmon-bridge-1-accept-minimal"
     SBConnect: false
     SBNearPort: 55001
@@ -69,7 +69,7 @@ salmonbridges:
 
 #### Near Node (Connect Mode)
 ```yaml
-salmonbridges:
+SalmonBridges:
   - SBName: "salmon-bridge-1-connect-full"
     SBSocksListenPort: 1080
     SBHttpListenPort: 8080
@@ -80,18 +80,20 @@ salmonbridges:
     SBIdleTimeout: 1m
     SBInitialPacketSize: 1350
     SBTotalBandwidthLimit: 100M
+    SBMaxRecieveBufferSize: 1GB
 ```
 
 #### Far Node (Accept Mode)
 ```yaml
-salmonbridges:
+SalmonBridges:
   - SBName: "salmon-bridge-2-accept-full"
-    SBSocksListenPort: 1081
+    SBFarIp: "near-ip-here"
     SBConnect: false
     SBNearPort: 55002
     SBIdleTimeout: 1m
     SBInitialPacketSize: 1350
     SBTotalBandwidthLimit: 100M
+    SBMaxRecieveBufferSize: 1GB
 ```
 
 ## Usage
@@ -108,16 +110,19 @@ salmonbridges:
 - `SBConnect`: If true, acts as near node (initiates QUIC connection)
 - `SBNearPort`: QUIC port on near node - Far ONLY (int)
 - `SBFarPort`: QUIC port on far node - Near ONLY (int)
-- `SBFarIp`: Far node IP address (string, required for connect mode)
+- `SBFarIp`: Far node IP address for the near, acts as a IP/Hostname filter if set on the far
 - `SBIdleTimeout`: Idle timeout (duration e.g. 10s or 2m, optional)
 - `SBInitialPacketSize`: QUIC initial packet size (int e.g. 50M, optional)
-- `SBTotalBandwidthLimit`: Bandwidth limit (size e.g. 100M or 1G, optional)
+- `SBTotalBandwidthLimit`: Bandwidth limit (size in bits e.g. 100M or 1G, optional)
+- `SBMaxRecieveBufferSize`: Max buffer for incomming packets (size in bytes e.g. 500 MB or 1GB, optional)
+- `SBAllowedInIPs`: Near node only. List of hostname/IPs allowed to connect to the near. (Allows all if not set)
+- `SBAllowedOutAddresses`: Far node only. List of hostname/IPs connections can be proxies to. (Allows all if not set)
 
-### Logging Configuration (`globallog`)
-Logging is configured via the `globallog` section in your config:
+### Logging Configuration (`GlobalLog`)
+Logging is configured via the `GlobalLog` section in your config:
 
 ```yaml
-globallog:
+GlobalLog:
   Filename: "sc.log"   # Log file name
   MaxSize: 20          # Max log file size (megabytes)
   MaxBackups: 5        # Max number of old log files to keep
