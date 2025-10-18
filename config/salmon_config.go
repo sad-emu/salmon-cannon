@@ -67,14 +67,23 @@ func (s *SizeString) UnmarshalYAML(value *yaml.Node) error {
 	multiplier := int64(1)
 	switch {
 	case strings.HasSuffix(raw, "K"):
-		multiplier = 1 << 10
+		multiplier = 1000 / 8
 		raw = strings.TrimSuffix(raw, "K")
+	case strings.HasSuffix(raw, "KB"):
+		multiplier = 1024
+		raw = strings.TrimSuffix(raw, "KB")
 	case strings.HasSuffix(raw, "M"):
-		multiplier = 1 << 20
+		multiplier = (1000 * 1000) / 8
 		raw = strings.TrimSuffix(raw, "M")
+	case strings.HasSuffix(raw, "MB"):
+		multiplier = 1024 * 1024
+		raw = strings.TrimSuffix(raw, "MB")
 	case strings.HasSuffix(raw, "G"):
-		multiplier = 1 << 30
+		multiplier = (1000 * 1000 * 1000) / 8
 		raw = strings.TrimSuffix(raw, "G")
+	case strings.HasSuffix(raw, "GB"):
+		multiplier = 1024 * 1024 * 1024
+		raw = strings.TrimSuffix(raw, "GB")
 	default:
 		// Only accept numbers or uppercase suffix
 		if _, err := strconv.ParseInt(raw, 10, 64); err != nil {
@@ -98,17 +107,19 @@ type SalmonBridgeConfig struct {
 	FarPort         int    `yaml:"SBFarPort,omitempty"`
 	FarIp           string `yaml:"SBFarIp"`
 
-	SocksListenAddress  string         `yaml:"SBSocksListenAddress,omitempty"`  // e.g. "127.0.0.1"
-	HttpListenPort      int            `yaml:"SBHttpListenPort,omitempty"`      // optional HTTP proxy listen port (near only)
-	IdleTimeout         DurationString `yaml:"SBIdleTimeout,omitempty"`         // default "10s"
-	InitialPacketSize   int            `yaml:"SBInitialPacketSize,omitempty"`   // default 1350
-	TotalBandwidthLimit SizeString     `yaml:"SBTotalBandwidthLimit,omitempty"` // default "100M"
+	SocksListenAddress   string         `yaml:"SBSocksListenAddress,omitempty"`   // e.g. "127.0.0.1"
+	HttpListenPort       int            `yaml:"SBHttpListenPort,omitempty"`       // optional HTTP proxy listen port (near only)
+	IdleTimeout          DurationString `yaml:"SBIdleTimeout,omitempty"`          // default "10s"
+	InitialPacketSize    int            `yaml:"SBInitialPacketSize,omitempty"`    // default 1350
+	TotalBandwidthLimit  SizeString     `yaml:"SBTotalBandwidthLimit,omitempty"`  // default "100M"
+	MaxRecieveBufferSize SizeString     `yaml:"SBMaxRecieveBufferSize,omitempty"` // default "500MB"
+	InterfaceName        string         `yaml:"SBInterfaceName,omitempty"`        // default ""
 }
 
 // Config holds all SalmonBridgeConfigs
 type SalmonCannonConfig struct {
-	Bridges   []SalmonBridgeConfig `yaml:"salmonbridges"`
-	GlobalLog *GlobalLogConfig     `yaml:"globallog,omitempty"`
+	Bridges   []SalmonBridgeConfig `yaml:"SalmonBridges"`
+	GlobalLog *GlobalLogConfig     `yaml:"GlobalLog,omitempty"`
 }
 
 // SetDefaults sets default values for optional fields
@@ -138,7 +149,15 @@ func (c *SalmonCannonConfig) SetDefaults() {
 		if b.TotalBandwidthLimit == 0 {
 			c.Bridges[i].TotalBandwidthLimit = -1
 		} else {
-			c.Bridges[i].TotalBandwidthLimit = b.TotalBandwidthLimit / 8
+			c.Bridges[i].TotalBandwidthLimit = b.TotalBandwidthLimit
+		}
+		if len(b.InterfaceName) == 0 {
+			c.Bridges[i].InterfaceName = ""
+		}
+		if b.MaxRecieveBufferSize == 0 {
+			c.Bridges[i].MaxRecieveBufferSize = SizeString(419430400) // 400MB
+		} else if b.MaxRecieveBufferSize <= 1024*1024*7 {
+			fmt.Errorf("MaxBufferSize is too low. Cannot be below 7MB.")
 		}
 	}
 	// Set global log defaults if not provided

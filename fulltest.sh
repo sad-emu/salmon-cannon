@@ -50,7 +50,7 @@ go build -o "$RATETEST_BIN" ./ratetest || { echo "go build ratetest failed"; exi
 
 echo "==> Writing configuration files"
 cat > "$FAR_DIR/scconfig.yml" <<EOF
-salmonbridges:
+SalmonBridges:
   - SBName: "sc-near"
     SBConnect: false
     SBNearPort: ${FAR_PORT}
@@ -58,7 +58,9 @@ salmonbridges:
     SBSocksListenAddress: "127.0.0.1"
     SBIdleTimeout: 10s
     SBInitialPacketSize: 1350
-globallog:
+    SBMaxRecieveBufferSize: 2GB
+    SBInterfaceName: "lo"
+GlobalLog:
   Filename: "sc.log"
   MaxSize: 5
   MaxBackups: 2
@@ -67,7 +69,7 @@ globallog:
 EOF
 
 cat > "$NEAR_DIR/scconfig.yml" <<EOF
-salmonbridges:
+SalmonBridges:
   - SBName: "sc-near"
     SBSocksListenPort: ${SOCKS_PORT}
     SBSocksListenAddress: "127.0.0.1"
@@ -77,7 +79,9 @@ salmonbridges:
     SBFarIp: "127.0.0.1"
     SBIdleTimeout: 10s
     SBInitialPacketSize: 1350
-globallog:
+    SBMaxRecieveBufferSize: 2GB
+    SBInterfaceName: "lo"
+GlobalLog:
   Filename: "sc.log"
   MaxSize: 5
   MaxBackups: 2

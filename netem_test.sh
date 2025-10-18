@@ -116,15 +116,17 @@ echo "==> Writing configuration files"
 
 # Far (accepting QUIC connections)
 cat > "$FAR_DIR/scconfig.yml" <<EOF
-salmonbridges:
+SalmonBridges:
   - SBName: "sc-near"
     SBConnect: false
     SBNearPort: ${FAR_PORT}
     SBSocksListenPort: 0
     SBSocksListenAddress: "127.0.0.1"
     SBIdleTimeout: 10s
-    SBInitialPacketSize: 1450
-globallog:
+    SBInitialPacketSize: 1400
+    SBMaxRecieveBufferSize: 2GB
+    SBInterfaceName: "lo"
+GlobalLog:
   Filename: "sc.log"
   MaxSize: 5
   MaxBackups: 2
@@ -134,7 +136,7 @@ EOF
 
 # Near (connects to far, exposes a local SOCKS5 interface that ratetest will talk to)
 cat > "$NEAR_DIR/scconfig.yml" <<EOF
-salmonbridges:
+SalmonBridges:
   - SBName: "sc-near"
     SBSocksListenPort: ${SOCKS_PORT}
     SBSocksListenAddress: "127.0.0.1"
@@ -143,8 +145,10 @@ salmonbridges:
     SBFarPort: ${FAR_PORT}
     SBFarIp: "127.0.0.1"
     SBIdleTimeout: 10s
-    SBInitialPacketSize: 1450
-globallog:
+    SBInitialPacketSize: 1400
+    SBMaxRecieveBufferSize: 2GB
+    SBInterfaceName: "lo"
+GlobalLog:
   Filename: "sc.log"
   MaxSize: 5
   MaxBackups: 2

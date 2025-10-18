@@ -44,12 +44,14 @@ func TestSizeString_UnmarshalYAML(t *testing.T) {
 		expect    int64
 		shouldErr bool
 	}{
-		{"10K", 10 << 10, false},
-		{"2M", 2 << 20, false},
-		{"1G", 1 << 30, false},
+		{"10KB", 1024 * 10, false},
+		{"10K", 1000 * 10 / 8, false},
+		{"2MB", 2 << 20, false},
+		{"1GB", 1 << 30, false},
 		{"100", 100, false},
 		{"bad", 0, true},
 		{"10k", 0, true}, // lowercase not allowed
+		{"50MB", 52428800, false},
 	}
 	for _, c := range cases {
 		var node yaml.Node
@@ -79,10 +81,16 @@ func TestSetDefaults(t *testing.T) {
 	if b.TotalBandwidthLimit != -1 {
 		t.Errorf("TotalBandwidthLimit default not set")
 	}
+	if b.InterfaceName != "" {
+		t.Errorf("InterfaceName default not set")
+	}
+	if b.MaxRecieveBufferSize != SizeString(419430400) {
+		t.Errorf("MaxRecieveBufferSize default not set to expected value, got %d", b.MaxRecieveBufferSize)
+	}
 }
 
 func TestLoadConfig(t *testing.T) {
-	yamlData := `salmonbridges:
+	yamlData := `SalmonBridges:
   - SBName: test
     SBSocksListenPort: 1080
     SBConnect: true
@@ -93,6 +101,8 @@ func TestLoadConfig(t *testing.T) {
     SBRecieveWindow: "20M"
     SBMaxRecieveWindow: "50M"
     SBTotalBandwidthLimit: "200M"
+    SBInterfaceName: "eth0"
+    SBMaxRecieveBufferSize: 500MB
 `
 	f, err := os.CreateTemp("", "salmon_config_test.yaml")
 	if err != nil {
@@ -119,8 +129,14 @@ func TestLoadConfig(t *testing.T) {
 	if b.InitialPacketSize != 1500 {
 		t.Errorf("InitialPacketSize not parsed correctly")
 	}
-	if b.TotalBandwidthLimit != SizeString(200<<20)/8 {
-		t.Errorf("TotalBandwidthLimit not parsed correctly")
+	if b.TotalBandwidthLimit != SizeString(25000000) {
+		t.Errorf("TotalBandwidthLimit not parsed correctlygot %d", b.TotalBandwidthLimit)
+	}
+	if b.InterfaceName != "eth0" {
+		t.Errorf("InterfaceName not parsed correctly, got %q", b.InterfaceName)
+	}
+	if b.MaxRecieveBufferSize != 524288000 {
+		t.Errorf("MaxRecieveBufferSize not parsed correctly, got %d", b.MaxRecieveBufferSize)
 	}
 }
 
@@ -148,13 +164,13 @@ func TestGlobalLogConfig_Defaults(t *testing.T) {
 }
 
 func TestGlobalLogConfig_ParseYAML(t *testing.T) {
-	yamlData := `globallog:
+	yamlData := `GlobalLog:
   Filename: "custom.log"
   MaxSize: 42
   MaxBackups: 7
   MaxAge: 99
   Compress: true
-salmonbridges:
+SalmonBridges:
   - SBName: test
     SBSocksListenPort: 1080
     SBConnect: true
@@ -195,5 +211,8 @@ salmonbridges:
 	}
 	if cfg.GlobalLog.Compress != true {
 		t.Errorf("Compress not parsed correctly, got %v", cfg.GlobalLog.Compress)
+	}
+	if cfg.Bridges[0].InterfaceName != "" {
+		t.Errorf("InterfaceName not parsed correctly, got %v", cfg.Bridges[0].InterfaceName)
 	}
 }

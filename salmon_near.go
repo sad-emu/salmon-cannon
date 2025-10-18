@@ -22,10 +22,10 @@ func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
 
 	qcfg := &quic.Config{
 		MaxIdleTimeout:                 config.IdleTimeout.Duration(),
-		InitialStreamReceiveWindow:     uint64(1024 * 1024 * 50 * 8),
-		MaxStreamReceiveWindow:         uint64(1024 * 1024 * 700 * 8),
-		InitialConnectionReceiveWindow: uint64(1024 * 1024 * 50 * 8),
-		MaxConnectionReceiveWindow:     uint64(1024 * 1024 * 700 * 8),
+		InitialStreamReceiveWindow:     uint64(1024 * 1024 * 21),
+		MaxStreamReceiveWindow:         uint64(config.MaxRecieveBufferSize),
+		InitialConnectionReceiveWindow: uint64(1024 * 1024 * 7),
+		MaxConnectionReceiveWindow:     uint64(config.MaxRecieveBufferSize / 2),
 		InitialPacketSize:              uint16(config.InitialPacketSize),
 	}
 
@@ -36,7 +36,8 @@ func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
 		NextProtos:         []string{config.Name},
 	}
 
-	salmonBridge := bridge.NewSalmonBridge(config.Name, bridgeAddress, bridgePort, tlscfg, qcfg, sl, config.Connect)
+	salmonBridge := bridge.NewSalmonBridge(config.Name, bridgeAddress, bridgePort,
+		tlscfg, qcfg, sl, config.Connect, config.InterfaceName)
 
 	near := &SalmonNear{
 		currentBridge: salmonBridge,

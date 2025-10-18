@@ -1,11 +1,11 @@
-globallog:
+GlobalLog:
   Filename: "sc.log"
   MaxSize: 20        # megabytes
   MaxBackups: 5
   MaxAge: 28         # days
   Compress: false
 
-salmonbridges:
+SalmonBridges:
   - SBName: "salmon-bridge-1-connect-minimal"
     SBSocksListenPort: 1080
     SBConnect: true
@@ -24,6 +24,8 @@ salmonbridges:
     SBIdleTimeout: 1m
     SBInitialPacketSize: 1350
     SBTotalBandwidthLimit: 100M
+    SBMaxRecieveBufferSize: 2GB
+    SBInterfaceName: "eth0"
   - SBName: "salmon-bridge-2-accept-full"
     SBSocksListenPort: 1081
     SBConnect: false
@@ -31,3 +33,5 @@ salmonbridges:
     SBIdleTimeout: 1m
     SBInitialPacketSize: 1350
     SBTotalBandwidthLimit: 100M
+    SBMaxRecieveBufferSize: 2GB
+    SBInterfaceName: "eth0"
