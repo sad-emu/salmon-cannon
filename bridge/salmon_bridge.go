@@ -186,6 +186,11 @@ func (s *SalmonBridge) NewFarListen() error {
 
 		for {
 			conn, err := l.Accept(context.Background())
+			if err != nil {
+				log.Printf("FAR: Bridge %s accept conn error: %v", s.BridgeName, err)
+				continue
+			}
+			// Ip filtering if BridgeAddress is set
 			if s.BridgeAddress != "" {
 				remoteAddr := conn.RemoteAddr().String()
 				expectedAddr := fmt.Sprintf("%s:%d", s.BridgeAddress, s.BridgePort)
@@ -194,10 +199,6 @@ func (s *SalmonBridge) NewFarListen() error {
 					_ = conn.CloseWithError(0, "unexpected address")
 					continue
 				}
-			}
-			if err != nil {
-				log.Printf("FAR: Bridge %s accept conn error: %v", s.BridgeName, err)
-				continue
 			}
 			go func(c *quic.Conn) {
 				for {
@@ -219,6 +220,12 @@ func (s *SalmonBridge) NewFarListen() error {
 
 		for {
 			qc, err := l.Accept(context.Background())
+
+			if err != nil {
+				log.Printf("FAR: Bridge %s accept conn error: %v", s.BridgeName, err)
+				continue
+			}
+			// Ip filtering if BridgeAddress is set
 			if s.BridgeAddress != "" {
 				remoteAddr, _, _ := net.SplitHostPort(qc.RemoteAddr().String())
 				if s.BridgeAddress != remoteAddr {
@@ -226,11 +233,6 @@ func (s *SalmonBridge) NewFarListen() error {
 					_ = qc.CloseWithError(0, "unexpected address")
 					continue
 				}
-			}
-			qc.RemoteAddr()
-			if err != nil {
-				log.Printf("FAR: Bridge %s accept conn error: %v", s.BridgeName, err)
-				continue
 			}
 
 			go func(conn *quic.Conn) {
