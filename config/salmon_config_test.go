@@ -138,6 +138,9 @@ func TestLoadConfig(t *testing.T) {
 	if b.MaxRecieveBufferSize != 524288000 {
 		t.Errorf("MaxRecieveBufferSize not parsed correctly, got %d", b.MaxRecieveBufferSize)
 	}
+	// if len(b.AllowedInIPs) != 2 {
+	// 	t.Errorf("AllowedInboundIps not parsed correctly, got %d", len(b.AllowedInIPs))
+	// }
 }
 
 func TestGlobalLogConfig_Defaults(t *testing.T) {

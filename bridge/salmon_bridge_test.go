@@ -40,7 +40,8 @@ func TestSalmonBridge_HTTPProxyEndToEnd(t *testing.T) {
 
 	// Far bridge (listener)
 	farPort := 42000
-	farBridge := NewSalmonBridge("test1", "", farPort, tlsCfg, quicCfg, nil, false, "")
+	farBridge := NewSalmonBridge("test1", "", farPort, tlsCfg, quicCfg,
+		nil, false, "", make([]string, 0))
 	go func() {
 		farBridge.NewFarListen()
 	}()
@@ -48,7 +49,8 @@ func TestSalmonBridge_HTTPProxyEndToEnd(t *testing.T) {
 	time.Sleep(700 * time.Millisecond)
 
 	// Near bridge (connector)
-	nearBridge := NewSalmonBridge("test1", "127.0.0.1", farPort, tlsCfg, quicCfg, nil, true, "")
+	nearBridge := NewSalmonBridge("test1", "127.0.0.1", farPort, tlsCfg, quicCfg,
+		nil, true, "", make([]string, 0))
 
 	// Open a connection from near to the HTTP server
 	conn, err := nearBridge.NewNearConn("127.0.0.1", 1099)
@@ -119,14 +121,16 @@ func TestSalmonBridge_HTTPSProxyEndToEnd(t *testing.T) {
 		Certificates:       []tls.Certificate{utils.GenerateSelfSignedCert()},
 	}
 
-	farBridge := NewSalmonBridge("test2", "", farPort, bridgeTLSCfg, quicCfg, nil, false, "")
+	farBridge := NewSalmonBridge("test2", "", farPort, bridgeTLSCfg, quicCfg,
+		nil, false, "", make([]string, 0))
 	go func() {
 		farBridge.NewFarListen()
 	}()
 	time.Sleep(700 * time.Millisecond)
 
 	// Near bridge (connector)
-	nearBridge := NewSalmonBridge("test2", "127.0.0.1", farPort, bridgeTLSCfg, quicCfg, nil, true, "")
+	nearBridge := NewSalmonBridge("test2", "127.0.0.1", farPort, bridgeTLSCfg, quicCfg,
+		nil, true, "", make([]string, 0))
 
 	// Open a connection from near to the HTTPS server
 	conn, err := nearBridge.NewNearConn("127.0.0.1", 1098)
@@ -192,7 +196,8 @@ func TestSalmonBridge_PassFarIpCheck(t *testing.T) {
 
 	// Far bridge (listener)
 	farPort := 42000
-	farBridge := NewSalmonBridge("test1", "127.0.0.1", farPort, tlsCfg, quicCfg, nil, false, "")
+	farBridge := NewSalmonBridge("test1", "127.0.0.1", farPort, tlsCfg, quicCfg,
+		nil, false, "", make([]string, 0))
 	go func() {
 		farBridge.NewFarListen()
 	}()
@@ -200,7 +205,8 @@ func TestSalmonBridge_PassFarIpCheck(t *testing.T) {
 	time.Sleep(700 * time.Millisecond)
 
 	// Near bridge (connector)
-	nearBridge := NewSalmonBridge("test1", "127.0.0.1", farPort, tlsCfg, quicCfg, nil, true, "")
+	nearBridge := NewSalmonBridge("test1", "127.0.0.1", farPort, tlsCfg, quicCfg,
+		nil, true, "", make([]string, 0))
 
 	// Open a connection from near to the HTTP server
 	conn, err := nearBridge.NewNearConn("127.0.0.1", 1123)
@@ -239,7 +245,8 @@ func TestSalmonBridge_FailFarIpCheck(t *testing.T) {
 
 	// Far bridge (listener)
 	farPort := 42000 ///////////////////// Wrong ip so it should fail
-	farBridge := NewSalmonBridge("test1", "127.0.0.2", farPort, tlsCfg, quicCfg, nil, false, "")
+	farBridge := NewSalmonBridge("test1", "127.0.0.2", farPort, tlsCfg, quicCfg, nil,
+		false, "", make([]string, 0))
 	go func() {
 		farBridge.NewFarListen()
 	}()
@@ -247,7 +254,8 @@ func TestSalmonBridge_FailFarIpCheck(t *testing.T) {
 	time.Sleep(700 * time.Millisecond)
 
 	// Near bridge (connector)
-	nearBridge := NewSalmonBridge("test1", "127.0.0.1", farPort, tlsCfg, quicCfg, nil, true, "")
+	nearBridge := NewSalmonBridge("test1", "127.0.0.1", farPort, tlsCfg, quicCfg, nil,
+		true, "", make([]string, 0))
 
 	// Open a connection from near to the HTTP server
 	conn, _ := nearBridge.NewNearConn("127.0.0.1", 1124)

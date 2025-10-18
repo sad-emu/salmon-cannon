@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"runtime"
+	"slices"
 	"sync"
 	"syscall"
 	"time"
@@ -25,25 +26,28 @@ type SalmonBridge struct {
 
 	sl *SharedLimiter
 
-	bridgeDown    bool
-	connector     bool
-	qcfg          *quic.Config
-	tlscfg        *tls.Config
-	interfaceName string
+	bridgeDown          bool
+	connector           bool
+	qcfg                *quic.Config
+	tlscfg              *tls.Config
+	interfaceName       string
+	allowedOutAddresses []string
 }
 
 func NewSalmonBridge(name string, address string, port int, tlscfg *tls.Config,
-	qcfg *quic.Config, sl *SharedLimiter, connector bool, interfaceName string) *SalmonBridge {
+	qcfg *quic.Config, sl *SharedLimiter, connector bool, interfaceName string,
+	allowedOutAddresses []string) *SalmonBridge {
 	return &SalmonBridge{
-		BridgeName:    name,
-		BridgeAddress: address,
-		BridgePort:    port,
-		tlscfg:        tlscfg,
-		qcfg:          qcfg,
-		sl:            sl,
-		connector:     connector,
-		bridgeDown:    true,
-		interfaceName: interfaceName,
+		BridgeName:          name,
+		BridgeAddress:       address,
+		BridgePort:          port,
+		tlscfg:              tlscfg,
+		qcfg:                qcfg,
+		sl:                  sl,
+		connector:           connector,
+		bridgeDown:          true,
+		interfaceName:       interfaceName,
+		allowedOutAddresses: allowedOutAddresses,
 	}
 }
 
@@ -165,6 +169,16 @@ func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 // Far side: accept streams, read header, dial target, pipe
 // =========================================================
 
+func shouldBlockHost(expectedRemote string, newRemote string) bool {
+	if expectedRemote != "" {
+		remoteAddr, _, _ := net.SplitHostPort(newRemote)
+		if expectedRemote != remoteAddr {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *SalmonBridge) NewFarListen() error {
 	listenAddr := fmt.Sprintf(":%d", s.BridgePort)
 	log.Printf("FAR: Address farListenAddr: '%s' (len=%d)\n", listenAddr, len(listenAddr))
@@ -191,14 +205,11 @@ func (s *SalmonBridge) NewFarListen() error {
 				continue
 			}
 			// Ip filtering if BridgeAddress is set
-			if s.BridgeAddress != "" {
-				remoteAddr := conn.RemoteAddr().String()
-				expectedAddr := fmt.Sprintf("%s:%d", s.BridgeAddress, s.BridgePort)
-				if remoteAddr != expectedAddr {
-					log.Printf("FAR: Bridge %s rejected connection from unexpected address %s (expected %s)", s.BridgeName, remoteAddr, expectedAddr)
-					_ = conn.CloseWithError(0, "unexpected address")
-					continue
-				}
+			remoteAddr, _, _ := net.SplitHostPort(conn.RemoteAddr().String())
+			if shouldBlockHost(s.BridgeAddress, remoteAddr) {
+				log.Printf("FAR: Bridge %s rejected connection from unexpected address %s (expected %s)", s.BridgeName, remoteAddr, s.BridgeAddress)
+				_ = conn.CloseWithError(0, "unexpected address")
+				continue
 			}
 			go func(c *quic.Conn) {
 				for {
@@ -226,13 +237,11 @@ func (s *SalmonBridge) NewFarListen() error {
 				continue
 			}
 			// Ip filtering if BridgeAddress is set
-			if s.BridgeAddress != "" {
-				remoteAddr, _, _ := net.SplitHostPort(qc.RemoteAddr().String())
-				if s.BridgeAddress != remoteAddr {
-					log.Printf("FAR: Bridge %s rejected connection from unexpected address %s (expected %s)", s.BridgeName, remoteAddr, s.BridgeAddress)
-					_ = qc.CloseWithError(0, "unexpected address")
-					continue
-				}
+			remoteAddr, _, _ := net.SplitHostPort(qc.RemoteAddr().String())
+			if shouldBlockHost(s.BridgeAddress, remoteAddr) {
+				log.Printf("FAR: Bridge %s rejected connection from unexpected address %s (expected %s)", s.BridgeName, remoteAddr, s.BridgeAddress)
+				_ = qc.CloseWithError(0, "unexpected address")
+				continue
 			}
 
 			go func(conn *quic.Conn) {
@@ -249,6 +258,14 @@ func (s *SalmonBridge) NewFarListen() error {
 	}
 }
 
+func (s *SalmonBridge) shouldBlockFarOutConn(outHostFull string) bool {
+	if len(s.allowedOutAddresses) == 0 {
+		return false
+	}
+	nearAddr, _, _ := net.SplitHostPort(outHostFull)
+	return !slices.Contains(s.allowedOutAddresses, nearAddr)
+}
+
 func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 	// 1) Read target header.
 	target, err := ReadTargetHeader(stream)
@@ -259,7 +276,15 @@ func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 		return
 	}
 
-	// 2) Dial target TCP.
+	// 2) Check for allowed outbound IPs/Hostnames
+	if s.shouldBlockFarOutConn(target) {
+		log.Printf("FAR: target addr not found in allow list: %s", target)
+		stream.CancelRead(0)
+		stream.Close()
+		return
+	}
+
+	// 3) Dial target TCP.
 	dst, err := net.Dial("tcp", target)
 	if err != nil {
 		log.Printf("FAR: dial on bridge %s failed %s error: %v", s.BridgeName, target, err)
@@ -271,7 +296,7 @@ func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 	defer dst.Close()
 	defer stream.Close()
 
-	// 3) Pipe bytes both directions.
+	// 4) Pipe bytes both directions.
 	BidiPipe(stream, dst, s.sl)
 }
 

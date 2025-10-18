@@ -8,12 +8,15 @@ import (
 	"salmoncannon/bridge"
 	"salmoncannon/config"
 
+	"slices"
+
 	quic "github.com/quic-go/quic-go"
 )
 
 type SalmonNear struct {
 	currentBridge *bridge.SalmonBridge
 	bridgeName    string
+	config        *config.SalmonBridgeConfig
 }
 
 func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
@@ -37,11 +40,12 @@ func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
 	}
 
 	salmonBridge := bridge.NewSalmonBridge(config.Name, bridgeAddress, bridgePort,
-		tlscfg, qcfg, sl, config.Connect, config.InterfaceName)
+		tlscfg, qcfg, sl, config.Connect, config.InterfaceName, config.AllowedOutAddresses)
 
 	near := &SalmonNear{
 		currentBridge: salmonBridge,
 		bridgeName:    config.Name,
+		config:        config,
 	}
 
 	return near, nil
@@ -58,8 +62,21 @@ func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
 // 	return near
 // }
 
+func (n *SalmonNear) shouldBlockNearConn(nearHostFull string) bool {
+	if len(n.config.AllowedInIPs) == 0 {
+		return false
+	}
+	nearAddr, _, _ := net.SplitHostPort(nearHostFull)
+	return !slices.Contains(n.config.AllowedInIPs, nearAddr)
+}
+
 func (n *SalmonNear) HandleRequest(conn net.Conn) {
 	defer conn.Close()
+
+	if n.shouldBlockNearConn(conn.RemoteAddr().String()) {
+		log.Printf("NEAR: Bridge %s recieved request unallowed near IP: %s", n.bridgeName, conn.RemoteAddr())
+		return // Only SOCKS5
+	}
 
 	// 1. Read greeting
 	buf := make([]byte, maxMethods+2)
@@ -116,7 +133,6 @@ func (n *SalmonNear) HandleRequest(conn net.Conn) {
 			return
 		}
 	}
-
 	// This is really noisy
 	// log.Printf("NEAR: New request on bridge %s to connect to %s:%d", n.bridgeName, host, port)
 

@@ -38,7 +38,7 @@ func NewSalmonFar(config *config.SalmonBridgeConfig) (*SalmonFar, error) {
 	log.Printf("FAR: Listen address for bridge %s is '%s' (len=%d)\n", config.Name, farListenAddr, len(farListenAddr))
 
 	farBridge := bridge.NewSalmonBridge(config.Name, config.FarIp, config.NearPort,
-		tlscfg, qcfg, sl, config.Connect, config.InterfaceName)
+		tlscfg, qcfg, sl, config.Connect, config.InterfaceName, make([]string, 0))
 
 	far := &SalmonFar{
 		farBridge: farBridge,
