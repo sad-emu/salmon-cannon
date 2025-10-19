@@ -48,7 +48,7 @@ GlobalLog:
 #### Near Node (Connect Mode)
 ```yaml
 SalmonBridges:
-  - SBName: "salmon-bridge-1-connect-minimal"
+  - SBName: "salmon-bridge-1-minimal"
     SBSocksListenPort: 1080
     SBConnect: true
     SBNearPort: 55001
@@ -59,7 +59,7 @@ SalmonBridges:
 #### Far Node (Accept Mode)
 ```yaml
 SalmonBridges:
-  - SBName: "salmon-bridge-1-accept-minimal"
+  - SBName: "salmon-bridge-1-minimal"
     SBConnect: false
     SBNearPort: 55001
     SBFarPort: 55001
@@ -90,7 +90,7 @@ SalmonBridges:
 #### Far Node (Accept Mode)
 ```yaml
 SalmonBridges:
-  - SBName: "salmon-bridge-2-full"
+  - SBName: "salmon-bridge-1-full"
     SBFarIp: "near-ip-here"
     SBConnect: false
     SBNearPort: 55002
