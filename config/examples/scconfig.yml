@@ -26,6 +26,12 @@ SalmonBridges:
     SBTotalBandwidthLimit: 100M
     SBMaxRecieveBufferSize: 2GB
     SBInterfaceName: "eth0"
+    SBAllowedInAddresses:
+      - "127.0.0.1"
+      - "127.0.0.2"
+    SBAllowedOutAddresses:
+      - "example.com"
+      - "example2.com"
   - SBName: "salmon-bridge-2-accept-full"
     SBSocksListenPort: 1081
     SBConnect: false
@@ -35,3 +41,9 @@ SalmonBridges:
     SBTotalBandwidthLimit: 100M
     SBMaxRecieveBufferSize: 2GB
     SBInterfaceName: "eth0"
+    SBAllowedInAddresses:
+      - "127.0.0.1"
+      - "127.0.0.2"
+    SBAllowedOutAddresses:
+      - "example.com"
+      - "example2.com"

@@ -171,8 +171,7 @@ func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 
 func shouldBlockHost(expectedRemote string, newRemote string) bool {
 	if expectedRemote != "" {
-		remoteAddr, _, _ := net.SplitHostPort(newRemote)
-		if expectedRemote != remoteAddr {
+		if expectedRemote != newRemote {
 			return true
 		}
 	}

@@ -114,7 +114,7 @@ type SalmonBridgeConfig struct {
 	TotalBandwidthLimit  SizeString     `yaml:"SBTotalBandwidthLimit,omitempty"`  // default "100M"
 	MaxRecieveBufferSize SizeString     `yaml:"SBMaxRecieveBufferSize,omitempty"` // default "500MB"
 	InterfaceName        string         `yaml:"SBInterfaceName,omitempty"`        // default ""
-	AllowedInIPs         []string       `yaml:"SBAllowedInboundIPs,omitempty"`    // default []
+	AllowedInAddresses   []string       `yaml:"SBAllowedInAddresses,omitempty"`   // default []
 	AllowedOutAddresses  []string       `yaml:"SBAllowedOutAddresses,omitempty"`  // default []
 }
 

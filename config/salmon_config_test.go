@@ -103,6 +103,12 @@ func TestLoadConfig(t *testing.T) {
     SBTotalBandwidthLimit: "200M"
     SBInterfaceName: "eth0"
     SBMaxRecieveBufferSize: 500MB
+    SBAllowedInAddresses:
+      - "127.0.0.1"
+      - "127.0.0.2"
+    SBAllowedOutAddresses:
+      - "example.com"
+      - "example2.com"
 `
 	f, err := os.CreateTemp("", "salmon_config_test.yaml")
 	if err != nil {
@@ -138,9 +144,12 @@ func TestLoadConfig(t *testing.T) {
 	if b.MaxRecieveBufferSize != 524288000 {
 		t.Errorf("MaxRecieveBufferSize not parsed correctly, got %d", b.MaxRecieveBufferSize)
 	}
-	// if len(b.AllowedInIPs) != 2 {
-	// 	t.Errorf("AllowedInboundIps not parsed correctly, got %d", len(b.AllowedInIPs))
-	// }
+	if len(b.AllowedInAddresses) != 2 {
+		t.Errorf("AllowedInAddresses not parsed correctly, got %d", len(b.AllowedInAddresses))
+	}
+	if len(b.AllowedOutAddresses) != 2 {
+		t.Errorf("AllowedOutAddresses not parsed correctly, got %d", len(b.AllowedOutAddresses))
+	}
 }
 
 func TestGlobalLogConfig_Defaults(t *testing.T) {

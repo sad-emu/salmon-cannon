@@ -1,4 +1,4 @@
-salmonbridges:
+SalmonBridges:
   - SBName: "salmon-bridge-test"
     SBSocksListenPort: 1080
     SBHttpListenPort: 8080

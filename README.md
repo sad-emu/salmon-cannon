@@ -70,7 +70,7 @@ SalmonBridges:
 #### Near Node (Connect Mode)
 ```yaml
 SalmonBridges:
-  - SBName: "salmon-bridge-1-connect-full"
+  - SBName: "salmon-bridge-1-full"
     SBSocksListenPort: 1080
     SBHttpListenPort: 8080
     SBConnect: true
@@ -82,12 +82,15 @@ SalmonBridges:
     SBTotalBandwidthLimit: 100M
     SBInterfaceName: "eth0"
     SBMaxRecieveBufferSize: 1GB
+    SBAllowedInAddresses:
+      - "127.0.0.1"
+      - "127.0.0.2"
 ```
 
 #### Far Node (Accept Mode)
 ```yaml
 SalmonBridges:
-  - SBName: "salmon-bridge-2-accept-full"
+  - SBName: "salmon-bridge-2-full"
     SBFarIp: "near-ip-here"
     SBConnect: false
     SBNearPort: 55002
@@ -96,6 +99,9 @@ SalmonBridges:
     SBTotalBandwidthLimit: 100M
     SBInterfaceName: "eth0"
     SBMaxRecieveBufferSize: 1GB
+    SBAllowedOutAddresses:
+      - "example.com"
+      - "example2.com"
 ```
 
 ## Usage
@@ -118,7 +124,7 @@ SalmonBridges:
 - `SBTotalBandwidthLimit`: Bandwidth limit (size in bits e.g. 100M or 1G, optional)
 - `SBMaxRecieveBufferSize`: Max buffer for incomming packets (size in bytes e.g. 500 MB or 1GB, optional)
 - `SBInterfaceName`: Network interface you wish to attach through. (Optional)
-- `SBAllowedInIPs`: Near node only. List of hostname/IPs allowed to connect to the near. (Allows all if not set)
+- `SBAllowedInAddresses`: Near node only. List of hostname/IPs allowed to connect to the near. (Allows all if not set)
 - `SBAllowedOutAddresses`: Far node only. List of hostname/IPs connections can be proxies to. (Allows all if not set)
 
 ### Logging Configuration (`GlobalLog`)

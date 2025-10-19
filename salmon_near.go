@@ -63,11 +63,11 @@ func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
 // }
 
 func (n *SalmonNear) shouldBlockNearConn(nearHostFull string) bool {
-	if len(n.config.AllowedInIPs) == 0 {
+	if len(n.config.AllowedInAddresses) == 0 {
 		return false
 	}
 	nearAddr, _, _ := net.SplitHostPort(nearHostFull)
-	return !slices.Contains(n.config.AllowedInIPs, nearAddr)
+	return !slices.Contains(n.config.AllowedInAddresses, nearAddr)
 }
 
 func (n *SalmonNear) HandleRequest(conn net.Conn) {
