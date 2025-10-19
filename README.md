@@ -1,4 +1,6 @@
 # The Salmon Cannon
+<img src="https://salmon-cannon.s3.eu-west-2.amazonaws.com/sc_logo_small.png" alt="SalmonCannon" width="213"/>
+
 ## NOT READY FOR USE
 SOCKS5 auth & bridge authentication is TODO. Do not use this project yet.
 ## Description
