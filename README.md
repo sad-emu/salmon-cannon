@@ -80,6 +80,7 @@ SalmonBridges:
     SBIdleTimeout: 1m
     SBInitialPacketSize: 1350
     SBTotalBandwidthLimit: 100M
+    SBInterfaceName: "eth0"
     SBMaxRecieveBufferSize: 1GB
 ```
 
@@ -93,6 +94,7 @@ SalmonBridges:
     SBIdleTimeout: 1m
     SBInitialPacketSize: 1350
     SBTotalBandwidthLimit: 100M
+    SBInterfaceName: "eth0"
     SBMaxRecieveBufferSize: 1GB
 ```
 
@@ -115,6 +117,7 @@ SalmonBridges:
 - `SBInitialPacketSize`: QUIC initial packet size (int e.g. 50M, optional)
 - `SBTotalBandwidthLimit`: Bandwidth limit (size in bits e.g. 100M or 1G, optional)
 - `SBMaxRecieveBufferSize`: Max buffer for incomming packets (size in bytes e.g. 500 MB or 1GB, optional)
+- `SBInterfaceName`: Network interface you wish to attach through. (Optional)
 - `SBAllowedInIPs`: Near node only. List of hostname/IPs allowed to connect to the near. (Allows all if not set)
 - `SBAllowedOutAddresses`: Far node only. List of hostname/IPs connections can be proxies to. (Allows all if not set)
 
@@ -130,7 +133,7 @@ GlobalLog:
   Compress: false      # Whether to compress old log files
 ```
 
-- `Filename`: Log file name (string)
+- `Filename`: Log file name (string). If not set will output to stdout
 - `MaxSize`: Maximum log file size before rotation (int, megabytes)
 - `MaxBackups`: Maximum number of backup log files to keep (int)
 - `MaxAge`: Maximum number of days to retain old log files (int, days)
