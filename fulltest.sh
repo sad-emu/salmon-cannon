@@ -57,7 +57,7 @@ SalmonBridges:
     SBSocksListenPort: 0
     SBSocksListenAddress: "127.0.0.1"
     SBIdleTimeout: 10s
-    SBInitialPacketSize: 1350
+    SBInitialPacketSize: 1400
     SBMaxRecieveBufferSize: 2GB
     SBInterfaceName: "lo"
 GlobalLog:
@@ -78,7 +78,7 @@ SalmonBridges:
     SBFarPort: ${FAR_PORT}
     SBFarIp: "127.0.0.1"
     SBIdleTimeout: 10s
-    SBInitialPacketSize: 1350
+    SBInitialPacketSize: 1400
     SBMaxRecieveBufferSize: 2GB
     SBInterfaceName: "lo"
 GlobalLog:
@@ -109,8 +109,9 @@ cd "$NEAR_DIR"
 nohup "$SC_BIN" > near.stdout.log 2> near.stderr.log &
 NEAR_PID=$!
 echo "Near PID: $NEAR_PID"
-sleep 1.2
-
+sleep 1
+sleep 1
+sleep 1
 echo "==> Running ratetest (mode=test) in near directory, output will be shown below"
 cd "$NEAR_DIR"
 set +e

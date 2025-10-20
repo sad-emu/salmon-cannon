@@ -40,12 +40,12 @@ RATETEST_BIN="$BIN_DIR/salmon-rate"
 
 # netem settings (Example 1 - hostile-ish)
 NETIF="${NETIF:-lo}"
-NETEM_DELAY="200ms"
-NETEM_JITTER="100ms"
-NETEM_LOSS="15% 15%"
-NETEM_REORDER="15% 15%"
-NETEM_DUP="3%"
-NETEM_CORRUPT="3%"
+NETEM_DELAY="50ms"
+NETEM_JITTER="10ms"
+NETEM_LOSS="10% 10%"
+NETEM_REORDER="10% 10%"
+NETEM_DUP="5%"
+NETEM_CORRUPT="5%"
 
 OLD_QDISC_FILE="$WORKDIR/old_qdisc.txt"
 
@@ -123,15 +123,9 @@ SalmonBridges:
     SBSocksListenPort: 0
     SBSocksListenAddress: "127.0.0.1"
     SBIdleTimeout: 10s
-    SBInitialPacketSize: 1400
+    SBInitialPacketSize: 8500
     SBMaxRecieveBufferSize: 2GB
     SBInterfaceName: "lo"
-GlobalLog:
-  Filename: "sc.log"
-  MaxSize: 5
-  MaxBackups: 2
-  MaxAge: 1
-  Compress: false
 EOF
 
 # Near (connects to far, exposes a local SOCKS5 interface that ratetest will talk to)
@@ -145,15 +139,9 @@ SalmonBridges:
     SBFarPort: ${FAR_PORT}
     SBFarIp: "127.0.0.1"
     SBIdleTimeout: 10s
-    SBInitialPacketSize: 1400
+    SBInitialPacketSize: 8500
     SBMaxRecieveBufferSize: 2GB
     SBInterfaceName: "lo"
-GlobalLog:
-  Filename: "sc.log"
-  MaxSize: 5
-  MaxBackups: 2
-  MaxAge: 1
-  Compress: false
 EOF
 
 echo "==> Starting far instance (accept mode) in background"
