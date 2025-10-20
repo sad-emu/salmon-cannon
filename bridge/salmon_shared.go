@@ -10,9 +10,10 @@ import (
 	quic "github.com/quic-go/quic-go"
 )
 
-// =========================================================
-// Helpers
-// =========================================================
+const (
+	tcpHeader  = 0x01
+	pingHeader = 0x02
+)
 
 // Simple 2-byte length-prefixed ASCII header carrying "host:port".
 func WriteTargetHeader(w io.Writer, addr string) error {
@@ -24,24 +25,34 @@ func WriteTargetHeader(w io.Writer, addr string) error {
 	if _, err := w.Write(hdr[:]); err != nil {
 		return err
 	}
-	_, err := w.Write([]byte(addr))
+	buf := make([]byte, 1+len(addr))
+	buf[0] = tcpHeader
+	copy(buf[1:], addr)
+	_, err := w.Write(buf)
 	return err
 }
 
-func ReadTargetHeader(r io.Reader) (string, error) {
+func ReadTargetHeader(r io.Reader) (string, byte, error) {
+	var mode [1]byte
+	if _, err := io.ReadFull(r, mode[:]); err != nil {
+		return "", 0x0, err
+	}
+	if mode[0] == pingHeader {
+		return "", pingHeader, nil
+	}
 	var hdr [2]byte
 	if _, err := io.ReadFull(r, hdr[:]); err != nil {
-		return "", err
+		return "", 0x0, err
 	}
 	n := int(binary.BigEndian.Uint16(hdr[:]))
 	if n == 0 {
-		return "", fmt.Errorf("empty target")
+		return "", 0x0, fmt.Errorf("empty target")
 	}
 	buf := make([]byte, n)
 	if _, err := io.ReadFull(r, buf); err != nil {
-		return "", err
+		return "", 0x0, err
 	}
-	return string(buf), nil
+	return string(buf), mode[0], nil
 }
 
 // bidiPipe moves bytes both ways until EOF on both directions.

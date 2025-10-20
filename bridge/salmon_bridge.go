@@ -267,10 +267,17 @@ func (s *SalmonBridge) shouldBlockFarOutConn(outHostFull string) bool {
 
 func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 	// 1) Read target header.
-	target, err := ReadTargetHeader(stream)
+	target, mode, err := ReadTargetHeader(stream)
 	if err != nil {
 		log.Printf("FAR: read header error: %v", err)
 		stream.CancelRead(0)
+		stream.Close()
+		return
+	}
+
+	// Pong back if this is just a ping
+	if mode == pingHeader {
+		stream.Write([]byte{pingHeader})
 		stream.Close()
 		return
 	}

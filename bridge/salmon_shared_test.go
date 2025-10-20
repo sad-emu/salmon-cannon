@@ -48,12 +48,15 @@ func TestReadTargetHeader_ValidInput(t *testing.T) {
 	buf := &bytes.Buffer{}
 	_ = WriteTargetHeader(buf, addr)
 
-	got, err := ReadTargetHeader(buf)
+	got, mode, err := ReadTargetHeader(buf)
 	if err != nil {
 		t.Fatalf("expected nil err, got %v", err)
 	}
 	if got != addr {
 		t.Errorf("expected addr %q, got %q", addr, got)
+	}
+	if mode != tcpHeader {
+		t.Errorf("expected mode %d, got %d", tcpHeader, mode)
 	}
 }
 
@@ -61,8 +64,8 @@ func TestReadTargetHeader_EmptyInput(t *testing.T) {
 	// Write a buffer with length 0 in the header
 	buf := &bytes.Buffer{}
 	buf.Write([]byte{0, 0})
-	_, err := ReadTargetHeader(buf)
-	if err == nil || err.Error() != "empty target" {
+	_, mode, err := ReadTargetHeader(buf)
+	if err == nil || err.Error() != "empty target" || mode != 0x0 {
 		t.Fatalf("expected 'empty target' error, got: %v", err)
 	}
 }
@@ -71,7 +74,7 @@ func TestReadTargetHeader_EarlyEOF(t *testing.T) {
 	// Not enough bytes for length header
 	buf := &bytes.Buffer{}
 	buf.Write([]byte{0x00})
-	_, err := ReadTargetHeader(buf)
+	_, _, err := ReadTargetHeader(buf)
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
