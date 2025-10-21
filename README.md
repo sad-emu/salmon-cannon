@@ -147,6 +147,22 @@ GlobalLog:
 - `MaxAge`: Maximum number of days to retain old log files (int, days)
 - `Compress`: Whether to compress rotated log files (bool)
 
+### API Configuration (`ApiConfig`)
+The API server is configured via the `ApiConfig` section in your config:
+
+```yaml
+ApiConfig:
+  Hostname: "localhost"
+  Port: 8081
+```
+
+- `Hostname`: Hostname for the server
+- `Port`: Port for the server
+
+#### Supported Requests
+
+- `/api/v1/bridges` - JSON List of loaded bridges
+
 ## Ratetest App
 
 Built with the 'build-ratetest.sh' command. It requires a valid scconfig.yml file to configure the tests.

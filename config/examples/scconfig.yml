@@ -1,3 +1,7 @@
+ApiConfig:
+  Hostname: "localhost"
+  Port: 8081
+
 GlobalLog:
   Filename: "sc.log"
   MaxSize: 20        # megabytes

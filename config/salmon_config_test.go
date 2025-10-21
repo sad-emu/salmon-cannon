@@ -228,3 +228,31 @@ SalmonBridges:
 		t.Errorf("InterfaceName not parsed correctly, got %v", cfg.Bridges[0].InterfaceName)
 	}
 }
+
+func TestApiConfig_ParseYAML(t *testing.T) {
+	yamlData := `ApiConfig:
+  Hostname: "localhost"
+  Port: 8080
+`
+	f, err := os.CreateTemp("", "salmon_config_test.yaml")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(f.Name())
+	f.WriteString(yamlData)
+	f.Close()
+
+	cfg, err := LoadConfig(f.Name())
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg.ApiConfig == nil {
+		t.Fatalf("ApiConfig should not be nil after parsing YAML")
+	}
+	if cfg.ApiConfig.Hostname != "localhost" {
+		t.Errorf("Hostname not parsed correctly, got %q", cfg.ApiConfig.Hostname)
+	}
+	if cfg.ApiConfig.Port != 8080 {
+		t.Errorf("Port not parsed correctly, got %d", cfg.ApiConfig.Port)
+	}
+}

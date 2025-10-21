@@ -4,6 +4,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"salmoncannon/api"
 	"salmoncannon/config"
 	"strconv"
 	"sync"
@@ -11,7 +12,7 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-const VERSION = "0.0.4"
+const VERSION = "0.0.5"
 
 func initNear(cfg *config.SalmonBridgeConfig, near *SalmonNear) {
 	log.Printf("NEAR: Initializing near side SOCKS listener for bridge %s", cfg.Name)
@@ -77,6 +78,17 @@ func main() {
 		})
 		log.Printf("Salmon Cannon version %s starting...", VERSION)
 		log.Printf("Loaded %d salmon bridges", len(cannonConfig.Bridges))
+	}
+
+	// Setup API server if configured
+	if cannonConfig.ApiConfig != nil {
+		apiListenAddr := net.JoinHostPort(cannonConfig.ApiConfig.Hostname, strconv.Itoa(cannonConfig.ApiConfig.Port))
+		apiServer := api.NewServer(cannonConfig, apiListenAddr)
+		err := apiServer.Start()
+		if err != nil {
+			log.Fatalf("API Server: failed to start API server: %v", err)
+		}
+		log.Printf("API Server: HTTP API server started on %s", apiListenAddr)
 	}
 
 	var wg sync.WaitGroup

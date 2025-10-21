@@ -1,3 +1,7 @@
+ApiConfig:
+  Hostname: "localhost"
+  Port: 8081
+
 SalmonBridges:
   - SBName: "salmon-bridge-test"
     SBSocksListenPort: 1080

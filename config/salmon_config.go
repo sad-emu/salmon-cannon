@@ -19,6 +19,11 @@ type GlobalLogConfig struct {
 	Compress   bool   `yaml:"Compress,omitempty"`
 }
 
+type ApiConfig struct {
+	Hostname string `yaml:"Hostname,omitempty"`
+	Port     int    `yaml:"Port,omitempty"`
+}
+
 // DurationString supports "10s", "5m" (only lowercase s/m)
 type DurationString time.Duration
 
@@ -122,6 +127,7 @@ type SalmonBridgeConfig struct {
 type SalmonCannonConfig struct {
 	Bridges   []SalmonBridgeConfig `yaml:"SalmonBridges"`
 	GlobalLog *GlobalLogConfig     `yaml:"GlobalLog,omitempty"`
+	ApiConfig *ApiConfig           `yaml:"ApiConfig,omitempty"`
 }
 
 // SetDefaults sets default values for optional fields
@@ -186,6 +192,7 @@ func (c *SalmonCannonConfig) SetDefaults() {
 		}
 		// Compress defaults to false, so no need to set
 	}
+
 }
 
 // LoadConfig loads config from YAML file and parses it
