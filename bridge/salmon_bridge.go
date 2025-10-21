@@ -117,6 +117,14 @@ func (s *SalmonBridge) ensureQUIC(ctx context.Context) error {
 	}
 }
 
+func (s *SalmonBridge) reconnectBridge() error {
+	if err := s.ensureQUIC(context.Background()); err != nil {
+		log.Printf("NEAR: Bridge %s creation failed: %v", s.BridgeName, err)
+		return err
+	}
+	return nil
+}
+
 // NewNearConn returns a net.Conn to the caller. Internally, it opens a new QUIC
 // stream, sends a small header identifying the remote target (host:port),
 // and then pipes bytes bidirectionally.
@@ -124,8 +132,7 @@ func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 
 	if s.connector {
 		// Only connectors can initiate connections.
-		if err := s.ensureQUIC(context.Background()); err != nil {
-			log.Printf("NEAR: Bridge %s creation failed: %v", s.BridgeName, err)
+		if err := s.reconnectBridge(); err != nil {
 			return nil, err
 		}
 	}
@@ -137,14 +144,30 @@ func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 		// Ensure we close the internal end if anything fails here.
 		defer internal.Close()
 
-		// Open a fresh bidirectional QUIC stream for this logical connection.
-		stream, err := s.qconn.OpenStreamSync(context.Background())
-		if err != nil {
-			s.mu.Lock()
-			defer s.mu.Unlock()
-			s.bridgeDown = true
-			log.Printf("NEAR: OpenStreamSync closed: %v", err)
-			return
+		// TODO maybe fix this mess????
+		maxAttempts := 2
+		stream := &quic.Stream{}
+		var err error
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			// Open a fresh bidirectional QUIC stream for this logical connection.
+			stream, err = s.qconn.OpenStreamSync(context.Background())
+			if err != nil {
+				log.Printf("NEAR: OpenStreamSync closed: %v", err)
+				s.mu.Lock()
+				s.bridgeDown = true
+				s.mu.Unlock()
+				if attempt < maxAttempts {
+					log.Printf("NEAR: Bridge %s reconnected to far", s.BridgeName)
+					if s.connector {
+						// Only connectors can initiate connections.
+						_ = s.reconnectBridge()
+					}
+					continue
+				} else {
+					log.Printf("NEAR: Bridge %s failed to open stream after %d attempts", s.BridgeName, maxAttempts)
+					return
+				}
+			}
 		}
 		// Make sure the write side of the stream is FINed after sending client->far bytes.
 		defer stream.Close()
