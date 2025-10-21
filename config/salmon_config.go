@@ -24,6 +24,13 @@ type ApiConfig struct {
 	Port     int    `yaml:"Port,omitempty"`
 }
 
+type SocksRedirectConfig struct {
+	Hostname string `yaml:"Hostname,omitempty"`
+	Port     int    `yaml:"Port,omitempty"`
+	// Map of partial destination addresses and names of bridges to direct them through
+	Redirects map[string]string `yaml:"Redirects,omitempty"`
+}
+
 // DurationString supports "10s", "5m" (only lowercase s/m)
 type DurationString time.Duration
 
@@ -125,9 +132,10 @@ type SalmonBridgeConfig struct {
 
 // Config holds all SalmonBridgeConfigs
 type SalmonCannonConfig struct {
-	Bridges   []SalmonBridgeConfig `yaml:"SalmonBridges"`
-	GlobalLog *GlobalLogConfig     `yaml:"GlobalLog,omitempty"`
-	ApiConfig *ApiConfig           `yaml:"ApiConfig,omitempty"`
+	Bridges             []SalmonBridgeConfig `yaml:"SalmonBridges"`
+	GlobalLog           *GlobalLogConfig     `yaml:"GlobalLog,omitempty"`
+	ApiConfig           *ApiConfig           `yaml:"ApiConfig,omitempty"`
+	SocksRedirectConfig *SocksRedirectConfig `yaml:"SocksRedirect,omitempty"`
 }
 
 // SetDefaults sets default values for optional fields

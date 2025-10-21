@@ -147,6 +147,18 @@ GlobalLog:
 - `MaxAge`: Maximum number of days to retain old log files (int, days)
 - `Compress`: Whether to compress rotated log files (bool)
 
+### SOCKS Redirect Configuration (`SocksRedirect`)
+The `SocksRedirect` section in your config allows you to use a single 'generic' SOCKS listener to route to specific bridges bases on the desired endpoint.
+
+```yaml
+SocksRedirect:
+  Hostname: "localhost"
+  Port: 8082
+  Redirects:
+    "example.com": "bridge-one"
+    "example.org": "bridge-two"
+```
+
 ### API Configuration (`ApiConfig`)
 The API server is configured via the `ApiConfig` section in your config:
 

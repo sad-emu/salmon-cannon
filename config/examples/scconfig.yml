@@ -2,6 +2,13 @@ ApiConfig:
   Hostname: "localhost"
   Port: 8081
 
+SocksRedirect:
+  Hostname: "localhost"
+  Port: 8082
+  Redirects:
+    "example.com": "bridge-one"
+    "example.org": "bridge-two"
+
 GlobalLog:
   Filename: "sc.log"
   MaxSize: 20        # megabytes

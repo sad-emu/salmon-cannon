@@ -1,10 +1,17 @@
 ApiConfig:
   Hostname: "localhost"
-  Port: 8081
+  Port: 8084
+
+SocksRedirect:
+  Hostname: "localhost"
+  Port: 1080
+  Redirects:
+    "google": "salmon-bridge-test"
+    "httpforever": "bridge-two"
 
 SalmonBridges:
   - SBName: "salmon-bridge-test"
-    SBSocksListenPort: 1080
+    SBSocksListenPort: 1081
     SBHttpListenPort: 8080
     SBConnect: true
     SBFarPort: 55001

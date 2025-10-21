@@ -92,6 +92,7 @@ func main() {
 	}
 
 	var wg sync.WaitGroup
+	bridgeRegistry := make(map[string]*SalmonNear) // Store references to near bridges
 
 	for cb := range cannonConfig.Bridges {
 		wg.Add(1)
@@ -105,6 +106,7 @@ func main() {
 				if err != nil {
 					log.Fatalf("NEAR: Failed to setup SalmonNear: %v", err)
 				}
+				bridgeRegistry[cfg.Name] = near // Store reference
 				if cfg.HttpListenPort > 0 {
 					log.Printf("NEAR: HTTP proxy enabled on port %d", cfg.HttpListenPort)
 					go initHTTPNear(cfg, near)
@@ -124,6 +126,17 @@ func main() {
 				select {}
 			}
 		}(bridgeConfig)
+	}
+
+	if cannonConfig.SocksRedirectConfig != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := runSocksRedirector(cannonConfig.SocksRedirectConfig, &bridgeRegistry)
+			if err != nil {
+				log.Fatalf("SOCKS Redirector: %v", err)
+			}
+		}()
 	}
 
 	wg.Wait()

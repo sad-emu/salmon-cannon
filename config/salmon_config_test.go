@@ -256,3 +256,46 @@ func TestApiConfig_ParseYAML(t *testing.T) {
 		t.Errorf("Port not parsed correctly, got %d", cfg.ApiConfig.Port)
 	}
 }
+
+func TestSocksRedirectConfig_ParseYAML(t *testing.T) {
+	yamlData := `SocksRedirect:
+  Hostname: "localhost"
+  Port: 8082
+  Redirects:
+    "example.com": "bridge-one"
+    "example.org": "bridge-two"
+`
+	f, err := os.CreateTemp("", "salmon_config_test.yaml")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(f.Name())
+	f.WriteString(yamlData)
+	f.Close()
+
+	cfg, err := LoadConfig(f.Name())
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg.SocksRedirectConfig == nil {
+		t.Fatalf("SocksRedirectConfig should not be nil after parsing YAML")
+	}
+	if cfg.SocksRedirectConfig.Hostname != "localhost" {
+		t.Errorf("Hostname not parsed correctly, got %q", cfg.SocksRedirectConfig.Hostname)
+	}
+	if cfg.SocksRedirectConfig.Port != 8080 {
+		t.Errorf("Port not parsed correctly, got %d", cfg.SocksRedirectConfig.Port)
+	}
+	if len(cfg.SocksRedirectConfig.Redirects) != 2 {
+		t.Errorf("Redirects not parsed correctly, got %d", len(cfg.SocksRedirectConfig.Redirects))
+	}
+	if cfg.SocksRedirectConfig.Redirects["example.com"] != "bridge-one" {
+		t.Errorf("Redirect for example.com not parsed correctly, got %q", cfg.SocksRedirectConfig.Redirects["example.com"])
+	}
+	if cfg.SocksRedirectConfig.Redirects["example.org"] != "bridge-two" {
+		t.Errorf("Redirect for example.org not parsed correctly, got %q", cfg.SocksRedirectConfig.Redirects["example.org"])
+	}
+	if cfg.SocksRedirectConfig.Port != 8080 {
+		t.Errorf("Port not parsed correctly, got %d", cfg.SocksRedirectConfig.Port)
+	}
+}

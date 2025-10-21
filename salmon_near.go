@@ -51,17 +51,6 @@ func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
 	return near, nil
 }
 
-// func NewSalmonNearFromFar(salmonFar *SalmonFar) *SalmonNear {
-
-// 	salmonBridge := salmonFar.farBridge
-
-// 	near := &SalmonNear{
-// 		currentBridge: salmonBridge,
-// 	}
-
-// 	return near
-// }
-
 func (n *SalmonNear) shouldBlockNearConn(nearHostFull string) bool {
 	if len(n.config.AllowedInAddresses) == 0 {
 		return false
