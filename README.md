@@ -148,7 +148,7 @@ GlobalLog:
 - `Compress`: Whether to compress rotated log files (bool)
 
 ### SOCKS Redirect Configuration (`SocksRedirect`)
-The `SocksRedirect` section in your config allows you to use a single 'generic' SOCKS listener to route to specific bridges bases on the desired endpoint.
+The `SocksRedirect` section in your config allows you to use a single 'generic' SOCKS listener to route to specific bridges bases on the desired endpoint. The requested IP/Hostname will use the first key that is a partial match, so be careful!
 
 ```yaml
 SocksRedirect:
