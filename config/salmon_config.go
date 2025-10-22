@@ -130,9 +130,18 @@ type SalmonBridgeConfig struct {
 	AllowedOutAddresses  []string       `yaml:"SBAllowedOutAddresses,omitempty"`  // default []
 }
 
+// SalmonBounceConfig holds config for UDP relay instances
+type SalmonBounceConfig struct {
+	Name        string            `yaml:"SBName"`
+	ListenAddr  string            `yaml:"SBListenAddr"`            // e.g. ":8080" or "0.0.0.0:8080"
+	RouteMap    map[string]string `yaml:"SBRouteMap"`              // client IP → backend address
+	IdleTimeout DurationString    `yaml:"SBIdleTimeout,omitempty"` // session idle timeout, default 60s
+}
+
 // Config holds all SalmonBridgeConfigs
 type SalmonCannonConfig struct {
 	Bridges             []SalmonBridgeConfig `yaml:"SalmonBridges"`
+	Bounces             []SalmonBounceConfig `yaml:"SalmonBounces,omitempty"`
 	GlobalLog           *GlobalLogConfig     `yaml:"GlobalLog,omitempty"`
 	ApiConfig           *ApiConfig           `yaml:"ApiConfig,omitempty"`
 	SocksRedirectConfig *SocksRedirectConfig `yaml:"SocksRedirect,omitempty"`
@@ -174,6 +183,16 @@ func (c *SalmonCannonConfig) SetDefaults() {
 			c.Bridges[i].MaxRecieveBufferSize = SizeString(419430400) // 400MB
 		} else if b.MaxRecieveBufferSize <= 1024*1024*7 {
 			fmt.Errorf("MaxBufferSize is too low. Cannot be below 7MB.")
+		}
+	}
+
+	// Set bounce defaults
+	for i, b := range c.Bounces {
+		if b.IdleTimeout == 0 {
+			c.Bounces[i].IdleTimeout = DurationString(60 * time.Second)
+		}
+		if b.RouteMap == nil {
+			c.Bounces[i].RouteMap = make(map[string]string)
 		}
 	}
 	// Set global log defaults if not provided

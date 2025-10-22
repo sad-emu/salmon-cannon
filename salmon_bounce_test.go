@@ -4,6 +4,8 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"salmoncannon/config"
 )
 
 func TestSalmonBounce_BasicUDPForwarding(t *testing.T) {
@@ -30,12 +32,16 @@ func TestSalmonBounce_BasicUDPForwarding(t *testing.T) {
 	}()
 
 	// Start SalmonBounce
-	bounceAddr := "127.0.0.1:0"
-	routeMap := map[string]string{
-		"127.0.0.1": backendListenAddr,
+	cfg := &config.SalmonBounceConfig{
+		Name:       "test-bounce",
+		ListenAddr: "127.0.0.1:0",
+		RouteMap: map[string]string{
+			"127.0.0.1": backendListenAddr,
+		},
+		IdleTimeout: config.DurationString(60 * time.Second),
 	}
 
-	bounce, err := NewSalmonBounce(bounceAddr, routeMap)
+	bounce, err := NewSalmonBounce(cfg)
 	if err != nil {
 		t.Fatalf("failed to create bounce: %v", err)
 	}
@@ -83,12 +89,16 @@ func TestSalmonBounce_SessionCleanup(t *testing.T) {
 
 	backendListenAddr := backendConn.LocalAddr().String()
 
-	bounceAddr := "127.0.0.1:0"
-	routeMap := map[string]string{
-		"127.0.0.1": backendListenAddr,
+	cfg := &config.SalmonBounceConfig{
+		Name:       "test-session-cleanup",
+		ListenAddr: "127.0.0.1:0",
+		RouteMap: map[string]string{
+			"127.0.0.1": backendListenAddr,
+		},
+		IdleTimeout: config.DurationString(60 * time.Second),
 	}
 
-	bounce, err := NewSalmonBounce(bounceAddr, routeMap)
+	bounce, err := NewSalmonBounce(cfg)
 	if err != nil {
 		t.Fatalf("failed to create bounce: %v", err)
 	}
@@ -124,7 +134,14 @@ func TestSalmonBounce_SessionCleanup(t *testing.T) {
 }
 
 func TestSalmonBounce_AddRemoveRoute(t *testing.T) {
-	bounce, err := NewSalmonBounce(":0", map[string]string{})
+	cfg := &config.SalmonBounceConfig{
+		Name:        "test-routes",
+		ListenAddr:  ":0",
+		RouteMap:    map[string]string{},
+		IdleTimeout: config.DurationString(60 * time.Second),
+	}
+
+	bounce, err := NewSalmonBounce(cfg)
 	if err != nil {
 		t.Fatalf("failed to create bounce: %v", err)
 	}
@@ -145,4 +162,34 @@ func TestSalmonBounce_AddRemoveRoute(t *testing.T) {
 		t.Fatalf("expected 1 route after removal, got %d", len(bounce.routeMap))
 	}
 	bounce.mu.RUnlock()
+}
+
+func TestSalmonBounce_ConfigConstructor(t *testing.T) {
+	cfg := &config.SalmonBounceConfig{
+		Name:       "config-test",
+		ListenAddr: "127.0.0.1:9999",
+		RouteMap: map[string]string{
+			"10.0.0.1": "backend1:8080",
+			"10.0.0.2": "backend2:8080",
+		},
+		IdleTimeout: config.DurationString(30 * time.Second),
+	}
+
+	bounce, err := NewSalmonBounce(cfg)
+	if err != nil {
+		t.Fatalf("failed to create bounce from config: %v", err)
+	}
+
+	if bounce.name != "config-test" {
+		t.Errorf("expected name 'config-test', got %q", bounce.name)
+	}
+	if bounce.listenAddr != "127.0.0.1:9999" {
+		t.Errorf("expected listenAddr '127.0.0.1:9999', got %q", bounce.listenAddr)
+	}
+	if len(bounce.routeMap) != 2 {
+		t.Errorf("expected 2 routes, got %d", len(bounce.routeMap))
+	}
+	if bounce.idleTimeout != 30*time.Second {
+		t.Errorf("expected idleTimeout 30s, got %v", bounce.idleTimeout)
+	}
 }

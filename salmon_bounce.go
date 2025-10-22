@@ -6,18 +6,22 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"salmoncannon/config"
 )
 
 // SalmonBounce is a user-space UDP relay that forwards packets based on a route map.
 // It maintains session state to support bidirectional forwarding without terminating QUIC.
 type SalmonBounce struct {
-	listenAddr string
-	listenConn *net.UDPConn
-	routeMap   map[string]string // client IP → backend address
-	sessions   map[string]*bounceSession
-	mu         sync.RWMutex
-	ctx        context.Context
-	cancel     context.CancelFunc
+	name        string
+	listenAddr  string
+	listenConn  *net.UDPConn
+	routeMap    map[string]string // client IP → backend address
+	idleTimeout time.Duration
+	sessions    map[string]*bounceSession
+	mu          sync.RWMutex
+	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
 type bounceSession struct {
@@ -28,17 +32,33 @@ type bounceSession struct {
 	mu          sync.Mutex
 }
 
-// NewSalmonBounce creates a new UDP relay instance.
-// listenAddr should be in form "ip:port" or ":port"
-// routeMap maps client IP → backend "ip:port"
-func NewSalmonBounce(listenAddr string, routeMap map[string]string) (*SalmonBounce, error) {
+// NewSalmonBounce creates a new UDP relay instance from config.
+func NewSalmonBounce(cfg *config.SalmonBounceConfig) (*SalmonBounce, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &SalmonBounce{
-		listenAddr: listenAddr,
-		routeMap:   routeMap,
-		sessions:   make(map[string]*bounceSession),
-		ctx:        ctx,
-		cancel:     cancel,
+		name:        cfg.Name,
+		listenAddr:  cfg.ListenAddr,
+		routeMap:    cfg.RouteMap,
+		idleTimeout: cfg.IdleTimeout.Duration(),
+		sessions:    make(map[string]*bounceSession),
+		ctx:         ctx,
+		cancel:      cancel,
+	}, nil
+}
+
+// NewSalmonBounceSimple creates a new UDP relay instance with simple parameters.
+// listenAddr should be in form "ip:port" or ":port"
+// routeMap maps client IP → backend "ip:port"
+func NewSalmonBounceSimple(listenAddr string, routeMap map[string]string) (*SalmonBounce, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &SalmonBounce{
+		name:        "simple-bounce",
+		listenAddr:  listenAddr,
+		routeMap:    routeMap,
+		idleTimeout: 60 * time.Second,
+		sessions:    make(map[string]*bounceSession),
+		ctx:         ctx,
+		cancel:      cancel,
 	}, nil
 }
 
@@ -55,7 +75,7 @@ func (b *SalmonBounce) Start() error {
 	}
 	b.listenConn = conn
 
-	log.Printf("SalmonBounce: listening on %s", b.listenAddr)
+	log.Printf("SalmonBounce[%s]: listening on %s", b.name, b.listenAddr)
 
 	go b.listenLoop()
 	go b.cleanupLoop()
@@ -94,14 +114,14 @@ func (b *SalmonBounce) listenLoop() {
 		// Look up backend for this packet
 		backend := b.lookupRoute(clientAddr.IP.String())
 		if backend == "" {
-			log.Printf("SalmonBounce: no route for client %s", clientAddr)
+			log.Printf("SalmonBounce[%s]: no route for client %s", b.name, clientAddr)
 			continue
 		}
 
 		// Get or create session
 		sess, err := b.getOrCreateSession(clientAddr, backend)
 		if err != nil {
-			log.Printf("SalmonBounce: session error: %v", err)
+			log.Printf("SalmonBounce[%s]: session error: %v", b.name, err)
 			continue
 		}
 
@@ -112,7 +132,7 @@ func (b *SalmonBounce) listenLoop() {
 		sess.mu.Unlock()
 
 		if err != nil {
-			log.Printf("SalmonBounce: forward error: %v", err)
+			log.Printf("SalmonBounce[%s]: forward error: %v", b.name, err)
 		}
 	}
 }
@@ -162,7 +182,7 @@ func (b *SalmonBounce) getOrCreateSession(clientAddr *net.UDPAddr, backend strin
 	// Start reply loop for this session
 	go b.replyLoop(sess)
 
-	log.Printf("SalmonBounce: new session %s → %s", clientAddr, backend)
+	log.Printf("SalmonBounce[%s]: new session %s → %s", b.name, clientAddr, backend)
 
 	return sess, nil
 }
@@ -190,7 +210,7 @@ func (b *SalmonBounce) replyLoop(sess *bounceSession) {
 			if b.ctx.Err() != nil {
 				return
 			}
-			log.Printf("SalmonBounce: reply read error: %v", err)
+			log.Printf("SalmonBounce[%s]: reply read error: %v", b.name, err)
 			return
 		}
 
@@ -201,7 +221,7 @@ func (b *SalmonBounce) replyLoop(sess *bounceSession) {
 		sess.mu.Unlock()
 
 		if err != nil {
-			log.Printf("SalmonBounce: reply forward error: %v", err)
+			log.Printf("SalmonBounce[%s]: reply forward error: %v", b.name, err)
 		}
 	}
 }
@@ -224,7 +244,6 @@ func (b *SalmonBounce) cleanupLoop() {
 // cleanupStaleSessions removes sessions that have been idle for too long.
 func (b *SalmonBounce) cleanupStaleSessions() {
 	now := time.Now()
-	idleTimeout := 60 * time.Second
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -234,10 +253,10 @@ func (b *SalmonBounce) cleanupStaleSessions() {
 		idle := now.Sub(sess.lastSeen)
 		sess.mu.Unlock()
 
-		if idle > idleTimeout {
+		if idle > b.idleTimeout {
 			sess.replyConn.Close()
 			delete(b.sessions, key)
-			log.Printf("SalmonBounce: cleaned up stale session %s", key)
+			log.Printf("SalmonBounce[%s]: cleaned up stale session %s", b.name, key)
 		}
 	}
 }
@@ -247,7 +266,7 @@ func (b *SalmonBounce) AddRoute(clientIP string, backend string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.routeMap[clientIP] = backend
-	log.Printf("SalmonBounce: added route %s → %s", clientIP, backend)
+	log.Printf("SalmonBounce[%s]: added route %s → %s", b.name, clientIP, backend)
 }
 
 // RemoveRoute removes a route from the route map.
@@ -255,5 +274,5 @@ func (b *SalmonBounce) RemoveRoute(clientIP string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	delete(b.routeMap, clientIP)
-	log.Printf("SalmonBounce: removed route for IP %s", clientIP)
+	log.Printf("SalmonBounce[%s]: removed route for IP %s", b.name, clientIP)
 }

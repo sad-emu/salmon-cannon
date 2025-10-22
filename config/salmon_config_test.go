@@ -296,3 +296,66 @@ func TestSocksRedirectConfig_ParseYAML(t *testing.T) {
 		t.Errorf("Redirect for example.org not parsed correctly, got %q", cfg.SocksRedirectConfig.Redirects["example.org"])
 	}
 }
+
+func TestSalmonBounceConfig_ParseYAML(t *testing.T) {
+	yamlData := `SalmonBounces:
+  - SBName: "bounce-one"
+    SBListenAddr: "0.0.0.0:8080"
+    SBRouteMap:
+      "192.168.1.1": "backend1:9090"
+      "192.168.1.2": "backend2:9091"
+    SBIdleTimeout: "30s"
+  - SBName: "bounce-two"
+    SBListenAddr: ":8081"
+    SBRouteMap:
+      "10.0.0.1": "backend3:9092"
+`
+	f, err := os.CreateTemp("", "salmon_config_test.yaml")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(f.Name())
+	f.WriteString(yamlData)
+	f.Close()
+
+	cfg, err := LoadConfig(f.Name())
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if len(cfg.Bounces) != 2 {
+		t.Fatalf("expected 2 bounces, got %d", len(cfg.Bounces))
+	}
+
+	// Check first bounce
+	b1 := cfg.Bounces[0]
+	if b1.Name != "bounce-one" {
+		t.Errorf("bounce 1: expected name 'bounce-one', got %q", b1.Name)
+	}
+	if b1.ListenAddr != "0.0.0.0:8080" {
+		t.Errorf("bounce 1: expected ListenAddr '0.0.0.0:8080', got %q", b1.ListenAddr)
+	}
+	if len(b1.RouteMap) != 2 {
+		t.Errorf("bounce 1: expected 2 routes, got %d", len(b1.RouteMap))
+	}
+	if b1.RouteMap["192.168.1.1"] != "backend1:9090" {
+		t.Errorf("bounce 1: route for 192.168.1.1 not parsed correctly, got %q", b1.RouteMap["192.168.1.1"])
+	}
+	if b1.IdleTimeout != DurationString(30*time.Second) {
+		t.Errorf("bounce 1: expected IdleTimeout 30s, got %v", b1.IdleTimeout)
+	}
+
+	// Check second bounce (should have default idle timeout)
+	b2 := cfg.Bounces[1]
+	if b2.Name != "bounce-two" {
+		t.Errorf("bounce 2: expected name 'bounce-two', got %q", b2.Name)
+	}
+	if b2.ListenAddr != ":8081" {
+		t.Errorf("bounce 2: expected ListenAddr ':8081', got %q", b2.ListenAddr)
+	}
+	if len(b2.RouteMap) != 1 {
+		t.Errorf("bounce 2: expected 1 route, got %d", len(b2.RouteMap))
+	}
+	if b2.IdleTimeout != DurationString(60*time.Second) {
+		t.Errorf("bounce 2: expected default IdleTimeout 60s, got %v", b2.IdleTimeout)
+	}
+}
