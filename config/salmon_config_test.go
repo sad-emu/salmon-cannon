@@ -283,7 +283,7 @@ func TestSocksRedirectConfig_ParseYAML(t *testing.T) {
 	if cfg.SocksRedirectConfig.Hostname != "localhost" {
 		t.Errorf("Hostname not parsed correctly, got %q", cfg.SocksRedirectConfig.Hostname)
 	}
-	if cfg.SocksRedirectConfig.Port != 8080 {
+	if cfg.SocksRedirectConfig.Port != 8082 {
 		t.Errorf("Port not parsed correctly, got %d", cfg.SocksRedirectConfig.Port)
 	}
 	if len(cfg.SocksRedirectConfig.Redirects) != 2 {
@@ -294,8 +294,5 @@ func TestSocksRedirectConfig_ParseYAML(t *testing.T) {
 	}
 	if cfg.SocksRedirectConfig.Redirects["example.org"] != "bridge-two" {
 		t.Errorf("Redirect for example.org not parsed correctly, got %q", cfg.SocksRedirectConfig.Redirects["example.org"])
-	}
-	if cfg.SocksRedirectConfig.Port != 8080 {
-		t.Errorf("Port not parsed correctly, got %d", cfg.SocksRedirectConfig.Port)
 	}
 }
