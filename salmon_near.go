@@ -8,6 +8,7 @@ import (
 	"salmoncannon/bridge"
 	"salmoncannon/config"
 	"strconv"
+	"sync"
 
 	"slices"
 
@@ -53,6 +54,44 @@ func initHTTPNear(cfg *config.SalmonBridgeConfig, near *SalmonNear) {
 	}
 }
 
+func relayConnData(src net.Conn, dst net.Conn) {
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Signal channel to coordinate shutdown
+	srcDone := make(chan struct{})
+	dstDone := make(chan struct{})
+
+	// Copy src -> dst
+	go func() {
+		defer wg.Done()
+		io.Copy(dst, src)
+		close(srcDone)
+		// Try to signal the other direction by closing write side if supported
+		if conn, ok := dst.(interface{ CloseWrite() error }); ok {
+			conn.CloseWrite()
+		}
+	}()
+
+	// Copy dst -> src
+	go func() {
+		defer wg.Done()
+		io.Copy(src, dst)
+		close(dstDone)
+		// Try to signal the other direction by closing write side if supported
+		if conn, ok := src.(interface{ CloseWrite() error }); ok {
+			conn.CloseWrite()
+		}
+	}()
+
+	// Wait for BOTH directions to complete
+	wg.Wait()
+
+	// Close both connections
+	src.Close()
+	dst.Close()
+}
+
 type SalmonNear struct {
 	currentBridge *bridge.SalmonBridge
 	bridgeName    string
@@ -70,6 +109,8 @@ func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
 		InitialConnectionReceiveWindow: uint64(1024 * 1024 * 7),
 		MaxConnectionReceiveWindow:     uint64(config.MaxRecieveBufferSize / 2),
 		InitialPacketSize:              uint16(config.InitialPacketSize),
+		MaxIncomingStreams:             maxConnections,
+		MaxIncomingUniStreams:          maxConnections,
 	}
 
 	sl := bridge.NewSharedLimiter(int64(config.TotalBandwidthLimit))
@@ -100,7 +141,11 @@ func (n *SalmonNear) shouldBlockNearConn(nearHostFull string) bool {
 }
 
 func (n *SalmonNear) HandleRequest(conn net.Conn) {
-	defer conn.Close()
+	globalConnMonitor.IncSOCKS()
+	defer func() {
+		conn.Close()
+		globalConnMonitor.DecSOCKS()
+	}()
 	//log.Printf("NEAR: Bridge %s accepted connection from %s", n.bridgeName, conn.RemoteAddr())
 	if n.shouldBlockNearConn(conn.RemoteAddr().String()) {
 		log.Printf("NEAR: Bridge %s recieved request unallowed near IP: %s", n.bridgeName, conn.RemoteAddr())
@@ -120,19 +165,24 @@ func (n *SalmonNear) HandleRequest(conn net.Conn) {
 		log.Printf("NEAR: Bridge %s Failed to open stream to far: %v", n.bridgeName, err)
 		return
 	}
-	defer stream.Close()
+	defer func() {
+		stream.Close()
+		log.Printf("NEAR: Bridge %s closed stream to %s:%d", n.bridgeName, host, port)
+	}()
 
 	// 5. Reply: success
 	conn.Write(replySuccess)
 
-	// 6. Relay data
-	go func() { io.Copy(stream, conn) }()
-	io.Copy(conn, stream)
+	relayConnData(conn, stream)
 }
 
 // HandleHTTP implements a minimal HTTP CONNECT proxy
 func (n *SalmonNear) HandleHTTP(conn net.Conn) {
-	defer conn.Close()
+	globalConnMonitor.IncHTTP()
+	defer func() {
+		conn.Close()
+		globalConnMonitor.DecHTTP()
+	}()
 	// Minimal parse: read first line
 	buf := make([]byte, 4096)
 	nread, err := conn.Read(buf)
@@ -191,10 +241,12 @@ func (n *SalmonNear) HandleHTTP(conn net.Conn) {
 		conn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
 		return
 	}
-	defer stream.Close()
+	defer func() {
+		stream.Close()
+		//log.Printf("NEAR: Bridge %s closed HTTP stream to %s:%d", n.bridgeName, host, port)
+	}()
 	// respond OK
 	conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
-	// pipe
-	go func() { io.Copy(stream, conn) }()
-	io.Copy(conn, stream)
+
+	relayConnData(conn, stream)
 }

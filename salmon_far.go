@@ -32,6 +32,8 @@ func NewSalmonFar(config *config.SalmonBridgeConfig) (*SalmonFar, error) {
 		InitialConnectionReceiveWindow: uint64(1024 * 1024 * 7),
 		MaxConnectionReceiveWindow:     uint64(config.MaxRecieveBufferSize / 2),
 		InitialPacketSize:              uint16(config.InitialPacketSize),
+		MaxIncomingStreams:             maxConnections,
+		MaxIncomingUniStreams:          maxConnections,
 	}
 
 	farListenAddr := fmt.Sprintf(":%d", config.NearPort)

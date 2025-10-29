@@ -53,28 +53,30 @@ func BidiPipe(stream *quic.Stream, tcp net.Conn, limiter *SharedLimiter) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
+	// Copy tcp -> stream
 	go func() {
 		defer wg.Done()
-		src := tcp
+		src := io.Reader(tcp)
 		if limiter != nil {
 			src = limiter.WrapConn(tcp)
 		}
 		if _, err := io.Copy(stream, src); err != nil {
 			stream.CancelWrite(0)
 		}
-		_ = stream.Close()
+		stream.Close()
 	}()
 
+	// Copy stream -> tcp
 	go func() {
 		defer wg.Done()
-		dst := tcp
+		dst := io.Writer(tcp)
 		if limiter != nil {
 			dst = limiter.WrapConn(tcp)
 		}
 		if _, err := io.Copy(dst, stream); err != nil {
 			stream.CancelRead(0)
 		}
-		_ = tcp.Close()
+		tcp.Close()
 	}()
 
 	wg.Wait()

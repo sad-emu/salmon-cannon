@@ -19,6 +19,8 @@ const (
 	ipv4Len               = 4
 	ipv6Len               = 16
 	portLen               = 2
+
+	maxConnections = 20000
 )
 
 var (

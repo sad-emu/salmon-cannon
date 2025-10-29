@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io"
 	"log"
 	"net"
 	"salmoncannon/config"
@@ -47,17 +46,20 @@ func handleSocksRedirect(conn net.Conn, socksConfig *config.SocksRedirectConfig,
 
 	if err != nil {
 		conn.Write(replyFail)
-		log.Printf("NEAR: Bridge %s Failed to open stream to far: %v", "SocksRedirectBridge", err)
+		log.Printf("NEAR: Bridge %s Failed to open stream to far: %v", dummyBridgeName, err)
 		return
 	}
-	defer stream.Close()
+
+	// 5. Reply: success
+	defer func() {
+		stream.Close()
+		log.Printf("NEAR: Bridge %s closed stream to %s:%d", dummyBridgeName, host, port)
+	}()
 
 	// 5. Reply: success
 	conn.Write(replySuccess)
 
-	// 6. Relay data
-	go func() { io.Copy(stream, conn) }()
-	io.Copy(conn, stream)
+	relayConnData(conn, stream)
 }
 func runSocksRedirector(socksConfig *config.SocksRedirectConfig, bridgeRegistry *map[string]*SalmonNear) error {
 	listenAddr := socksConfig.Hostname + ":" + strconv.Itoa(socksConfig.Port)
