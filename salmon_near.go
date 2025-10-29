@@ -101,7 +101,7 @@ func (n *SalmonNear) shouldBlockNearConn(nearHostFull string) bool {
 
 func (n *SalmonNear) HandleRequest(conn net.Conn) {
 	defer conn.Close()
-
+	//log.Printf("NEAR: Bridge %s accepted connection from %s", n.bridgeName, conn.RemoteAddr())
 	if n.shouldBlockNearConn(conn.RemoteAddr().String()) {
 		log.Printf("NEAR: Bridge %s recieved request unallowed near IP: %s", n.bridgeName, conn.RemoteAddr())
 		return

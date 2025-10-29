@@ -4,10 +4,14 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"time"
 )
 
 // Helper function to read exact number of bytes
 func readExact(conn net.Conn, buf []byte, n int) (int, error) {
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	defer conn.SetReadDeadline(time.Time{}) // Clear deadline
+
 	total := 0
 	for total < n {
 		read, err := conn.Read(buf[total:n])
@@ -67,6 +71,7 @@ func HandleSocksHandshake(conn net.Conn, bridgeName string) (string, int, error)
 	headerBuf := make([]byte, 2)
 	read, err := readExact(conn, headerBuf, 2)
 	if err != nil {
+		log.Printf("Step 1")
 		return "", 0, err
 	}
 	if read != 2 {
@@ -85,6 +90,7 @@ func HandleSocksHandshake(conn net.Conn, bridgeName string) (string, int, error)
 	if numMethods > 0 {
 		read, err = readExact(conn, methodsBuf, numMethods)
 		if err != nil {
+			log.Printf("Step 2")
 			return "", 0, err
 		}
 		if read != numMethods {
@@ -110,6 +116,7 @@ func HandleSocksHandshake(conn net.Conn, bridgeName string) (string, int, error)
 	} else if foundUserPass {
 		err = handleUserPassAuth(conn)
 		if err != nil {
+			log.Printf("Step 3")
 			return "", 0, err
 		}
 	} else {
@@ -121,6 +128,7 @@ func HandleSocksHandshake(conn net.Conn, bridgeName string) (string, int, error)
 	requestHeader := make([]byte, 4)
 	read, err = readExact(conn, requestHeader, 4)
 	if err != nil {
+		log.Printf("Step 4")
 		return "", 0, err
 	}
 	if read != 4 {
@@ -140,6 +148,7 @@ func HandleSocksHandshake(conn net.Conn, bridgeName string) (string, int, error)
 		case socksAddrTypeIPv4:
 			addrBuf := make([]byte, ipv4Len+portLen)
 			if _, err := readExact(conn, addrBuf, ipv4Len+portLen); err != nil {
+				log.Printf("Step 5")
 				return "", 0, err
 			}
 			host = net.IP(addrBuf[:ipv4Len]).String()
@@ -148,12 +157,14 @@ func HandleSocksHandshake(conn net.Conn, bridgeName string) (string, int, error)
 		case socksAddrTypeDomain:
 			dlenBuf := make([]byte, 1)
 			if _, err := readExact(conn, dlenBuf, 1); err != nil {
+				log.Printf("Step 6")
 				return "", 0, err
 			}
 			dlen := int(dlenBuf[0])
 
 			domainPortBuf := make([]byte, dlen+portLen)
 			if _, err := readExact(conn, domainPortBuf, dlen+portLen); err != nil {
+				log.Printf("Step 7")
 				return "", 0, err
 			}
 			host = string(domainPortBuf[:dlen])
@@ -162,6 +173,7 @@ func HandleSocksHandshake(conn net.Conn, bridgeName string) (string, int, error)
 		case socksAddrTypeIPv6:
 			addrBuf := make([]byte, ipv6Len+portLen)
 			if _, err := readExact(conn, addrBuf, ipv6Len+portLen); err != nil {
+				log.Printf("Step 8")
 				return "", 0, err
 			}
 			host = net.IP(addrBuf[:ipv6Len]).String()

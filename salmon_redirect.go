@@ -11,8 +11,8 @@ import (
 
 func handleSocksRedirect(conn net.Conn, socksConfig *config.SocksRedirectConfig, bridgeRegistry *map[string]*SalmonNear) {
 	defer conn.Close()
-
 	dummyBridgeName := "SocksRedirectBridge"
+	//log.Printf("NEAR: Bridge %s accepted connection from %s", dummyBridgeName, conn.RemoteAddr())
 
 	host, port, err := HandleSocksHandshake(conn, dummyBridgeName)
 	if err != nil {
