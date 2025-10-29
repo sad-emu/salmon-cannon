@@ -11,60 +11,13 @@ import (
 
 func handleSocksRedirect(conn net.Conn, socksConfig *config.SocksRedirectConfig, bridgeRegistry *map[string]*SalmonNear) {
 	defer conn.Close()
-	// 1. Read greeting
-	buf := make([]byte, maxMethods+2)
-	readb, err := conn.Read(buf)
-	if err != nil || readb < handshakeMinLen {
+
+	dummyBridgeName := "SocksRedirectBridge"
+
+	host, port, err := HandleSocksHandshake(conn, dummyBridgeName)
+	if err != nil {
+		log.Printf("NEAR: Bridge %s Failed to handle SOCKS handshake: %v", dummyBridgeName, err)
 		return
-	}
-	if buf[0] != socksVersion5 {
-		log.Printf("NEAR: Bridge %s recieved unsupported SOCKS version: %d", "SocksRedirectBridge", buf[0])
-		return // Only SOCKS5
-	}
-
-	// 2. Send handshake response: no auth
-	conn.Write(handshakeNoAuth)
-
-	// 3. Read request
-	readb, err = conn.Read(buf)
-	if err != nil || readb < requestMinLen {
-		return
-	}
-	if buf[0] != socksVersion5 {
-		return
-	}
-
-	var host string
-	var port int
-
-	switch buf[1] {
-	case socksCmdConnect:
-		switch buf[3] {
-		case socksAddrTypeIPv4:
-			if readb < 4+ipv4Len+portLen {
-				return
-			}
-			host = net.IP(buf[4 : 4+ipv4Len]).String()
-			port = int(buf[4+ipv4Len])<<8 | int(buf[5+ipv4Len])
-
-		case socksAddrTypeDomain:
-			dlen := int(buf[4])
-			if readb < 5+dlen+portLen {
-				return
-			}
-			host = string(buf[5 : 5+dlen])
-			port = int(buf[5+dlen])<<8 | int(buf[6+dlen])
-
-		case socksAddrTypeIPv6:
-			if readb < 4+ipv6Len+portLen {
-				return
-			}
-			host = net.IP(buf[4 : 4+ipv6Len]).String()
-			port = int(buf[4+ipv6Len])<<8 | int(buf[5+ipv6Len])
-
-		default:
-			return
-		}
 	}
 
 	// Check to see if we have a redirect for this destination
@@ -82,6 +35,12 @@ func handleSocksRedirect(conn net.Conn, socksConfig *config.SocksRedirectConfig,
 		return
 	}
 	log.Printf("SOCKS Redirector: Redirecting %s:%d to bridge %s", host, port, bridgeName)
+
+	// Do our block check here
+	if (*bridgeRegistry)[bridgeName].shouldBlockNearConn(conn.RemoteAddr().String()) {
+		log.Printf("NEAR: Bridge %s recieved request unallowed near IP: %s", (*bridgeRegistry)[bridgeName].bridgeName, conn.RemoteAddr())
+		return
+	}
 
 	// 4. Open a streaming session to far
 	stream, err := (*bridgeRegistry)[bridgeName].currentBridge.NewNearConn(host, port)

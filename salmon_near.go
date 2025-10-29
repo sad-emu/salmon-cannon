@@ -7,11 +7,51 @@ import (
 	"net"
 	"salmoncannon/bridge"
 	"salmoncannon/config"
+	"strconv"
 
 	"slices"
 
 	quic "github.com/quic-go/quic-go"
 )
+
+func initNear(cfg *config.SalmonBridgeConfig, near *SalmonNear) {
+	log.Printf("NEAR: Initializing near side SOCKS listener for bridge %s", cfg.Name)
+	listenAddr := cfg.SocksListenAddress + ":" + strconv.Itoa(cfg.SocksListenPort)
+	ln, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		log.Fatalf("NEAR: Failed to listen on %s: %v", listenAddr, err)
+	}
+	log.Printf("NEAR: SOCKS proxy listening on %s", listenAddr)
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			log.Printf("NEAR: Local SOCKS TCP accept error: %v", err)
+			continue
+		}
+		go near.HandleRequest(conn)
+	}
+}
+
+func initHTTPNear(cfg *config.SalmonBridgeConfig, near *SalmonNear) {
+	if cfg.HttpListenPort <= 0 {
+		return
+	}
+	addr := cfg.SocksListenAddress + ":" + strconv.Itoa(cfg.HttpListenPort)
+	log.Printf("NEAR: Initializing HTTP proxy listener for bridge %s on %s", cfg.Name, addr)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Fatalf("NEAR: Failed to listen HTTP on %s: %v", addr, err)
+	}
+	log.Printf("NEAR: HTTP proxy listening on %s", addr)
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			log.Printf("NEAR: HTTP accept error: %v", err)
+			continue
+		}
+		go near.HandleHTTP(conn)
+	}
+}
 
 type SalmonNear struct {
 	currentBridge *bridge.SalmonBridge
@@ -64,66 +104,14 @@ func (n *SalmonNear) HandleRequest(conn net.Conn) {
 
 	if n.shouldBlockNearConn(conn.RemoteAddr().String()) {
 		log.Printf("NEAR: Bridge %s recieved request unallowed near IP: %s", n.bridgeName, conn.RemoteAddr())
-		return // Only SOCKS5
-	}
-
-	// 1. Read greeting
-	buf := make([]byte, maxMethods+2)
-	readb, err := conn.Read(buf)
-	if err != nil || readb < handshakeMinLen {
-		return
-	}
-	if buf[0] != socksVersion5 {
-		log.Printf("NEAR: Bridge %s recieved unsupported SOCKS version: %d", n.bridgeName, buf[0])
-		return // Only SOCKS5
-	}
-
-	// 2. Send handshake response: no auth
-	conn.Write(handshakeNoAuth)
-
-	// 3. Read request
-	readb, err = conn.Read(buf)
-	if err != nil || readb < requestMinLen {
-		return
-	}
-	if buf[0] != socksVersion5 {
 		return
 	}
 
-	var host string
-	var port int
-
-	switch buf[1] {
-	case socksCmdConnect:
-		switch buf[3] {
-		case socksAddrTypeIPv4:
-			if readb < 4+ipv4Len+portLen {
-				return
-			}
-			host = net.IP(buf[4 : 4+ipv4Len]).String()
-			port = int(buf[4+ipv4Len])<<8 | int(buf[5+ipv4Len])
-
-		case socksAddrTypeDomain:
-			dlen := int(buf[4])
-			if readb < 5+dlen+portLen {
-				return
-			}
-			host = string(buf[5 : 5+dlen])
-			port = int(buf[5+dlen])<<8 | int(buf[6+dlen])
-
-		case socksAddrTypeIPv6:
-			if readb < 4+ipv6Len+portLen {
-				return
-			}
-			host = net.IP(buf[4 : 4+ipv6Len]).String()
-			port = int(buf[4+ipv6Len])<<8 | int(buf[5+ipv6Len])
-
-		default:
-			return
-		}
+	host, port, err := HandleSocksHandshake(conn, n.bridgeName)
+	if err != nil {
+		log.Printf("NEAR: Bridge %s Failed to handle SOCKS handshake: %v", n.bridgeName, err)
+		return
 	}
-	// This is really noisy
-	// log.Printf("NEAR: New request on bridge %s to connect to %s:%d", n.bridgeName, host, port)
 
 	// 4. Open a streaming session to far
 	stream, err := n.currentBridge.NewNearConn(host, port)

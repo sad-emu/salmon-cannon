@@ -1,7 +1,10 @@
 package main
 
 const (
-	socksVersion5         = 0x05
+	socksVersion5     = 0x05
+	socksAuthNoAuth   = 0x00
+	socksAuthUserPass = 0x02
+
 	socksCmdConnect       = 0x01
 	socksCmdUDPAssociate  = 0x03
 	socksAddrTypeIPv4     = 0x01
@@ -19,7 +22,11 @@ const (
 )
 
 var (
-	handshakeNoAuth = []byte{socksVersion5, 0x00}
-	replySuccess    = []byte{socksVersion5, socksReplySucceeded, socksReserved, socksAddrTypeIPv4, 0, 0, 0, 0, 0, 0}
-	replyFail       = []byte{socksVersion5, socksReplyGeneralFail, socksReserved, socksAddrTypeIPv4, 0, 0, 0, 0, 0, 0}
+	handshakeNoAuth       = []byte{socksVersion5, socksAuthNoAuth}
+	handshakeUserPass     = []byte{socksVersion5, socksAuthUserPass}
+	handshakeNoAcceptable = []byte{socksVersion5, 0xff}
+	authReplySuccess      = []byte{0x01, 0x00}
+	authReplyFail         = []byte{0x01, 0x01}
+	replySuccess          = []byte{socksVersion5, socksReplySucceeded, socksReserved, socksAddrTypeIPv4, 0, 0, 0, 0, 0, 0}
+	replyFail             = []byte{socksVersion5, socksReplyGeneralFail, socksReserved, socksAddrTypeIPv4, 0, 0, 0, 0, 0, 0}
 )
