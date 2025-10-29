@@ -34,8 +34,8 @@ func main() {
 			Filename:   cannonConfig.GlobalLog.Filename,
 			MaxSize:    cannonConfig.GlobalLog.MaxSize, // megabytes
 			MaxBackups: cannonConfig.GlobalLog.MaxBackups,
-			MaxAge:     cannonConfig.GlobalLog.MaxAge, // days
-			Compress:   true,                          // optional
+			MaxAge:     cannonConfig.GlobalLog.MaxAge,   // days
+			Compress:   cannonConfig.GlobalLog.Compress, // optional
 		})
 		log.Printf("Salmon Cannon version %s starting...", VERSION)
 		log.Printf("Loaded %d salmon bridges", len(cannonConfig.Bridges))
