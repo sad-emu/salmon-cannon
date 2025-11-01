@@ -47,12 +47,19 @@ func (cm *ConnectionMonitor) GetStatus(name string) bool {
 }
 
 func (cm *ConnectionMonitor) GetLastAliveMs(name string) int64 {
-	lastStatusTime, _ := cm.statusMap.Load(name)
+	lastStatusTime, exists := cm.statusMap.Load(name)
+	if !exists {
+		return -1
+	}
 	return time.Since(lastStatusTime.(time.Time)).Milliseconds()
 }
 
-func (cm *ConnectionMonitor) GetPing(name string) (interface{}, bool) {
-	return cm.pingMap.Load(name)
+func (cm *ConnectionMonitor) GetPing(name string) int64 {
+	ping, exists := cm.pingMap.Load(name)
+	if !exists {
+		return -1
+	}
+	return ping.(int64)
 }
 
 func (cm *ConnectionMonitor) IncSOCKS() {
@@ -106,7 +113,7 @@ func (cm *ConnectionMonitor) StartPeriodicLogging() {
 				name := key.(string)
 				limiter := value.(*limiter.SharedLimiter)
 				activeRate := (float64(limiter.GetActiveRate()) / 1024.0 / 1024.0) * 8.0
-				log.Printf("MONITOR: Limiter for bridge %s - Active Rate: %.2f mbps",
+				log.Printf("MONITOR: Current rate for bridge %s - %.2f mbps",
 					name, activeRate)
 				return true
 			})

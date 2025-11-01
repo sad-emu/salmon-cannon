@@ -76,6 +76,9 @@ type statusDTO struct {
 	BridgeName           string  `json:"bridge_name"`
 	MaxRateBitsPerSec    int64   `json:"max_rate_bps"`
 	ActiveRateBitsPerSec float64 `json:"active_rate_bps"`
+	LastAliveMin         int64   `json:"last_alive_min"`
+	LastPingMs           int64   `json:"last_ping_ms"`
+	Alive                bool    `json:"alive"`
 }
 
 func (s *Server) handleBridges(w http.ResponseWriter, r *http.Request) {
@@ -120,10 +123,20 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		lastAliveMs := status.GlobalConnMonitorRef.GetLastAliveMs(b.Name)
+		if lastAliveMs >= 0 {
+			lastAliveMs = lastAliveMs / 60000 // convert to minutes
+		}
+		lastPingMs := status.GlobalConnMonitorRef.GetPing(b.Name)
+		alive := status.GlobalConnMonitorRef.GetStatus(b.Name)
+
 		list = append(list, statusDTO{
 			BridgeName:           b.Name,
 			MaxRateBitsPerSec:    maxRateBps,
 			ActiveRateBitsPerSec: activeRateBps,
+			Alive:                alive,
+			LastAliveMin:         lastAliveMs,
+			LastPingMs:           lastPingMs,
 		})
 	}
 
