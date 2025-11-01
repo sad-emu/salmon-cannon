@@ -29,13 +29,14 @@ func NewSalmonFar(config *config.SalmonBridgeConfig) (*SalmonFar, error) {
 
 	qcfg := &quic.Config{
 		MaxIdleTimeout:                 config.IdleTimeout.Duration(),
-		InitialStreamReceiveWindow:     uint64(1024 * 1024 * 21),
+		InitialStreamReceiveWindow:     uint64(1024 * 1024 * 50),
 		MaxStreamReceiveWindow:         uint64(config.MaxRecieveBufferSize),
-		InitialConnectionReceiveWindow: uint64(1024 * 1024 * 7),
-		MaxConnectionReceiveWindow:     uint64(config.MaxRecieveBufferSize / 2),
+		InitialConnectionReceiveWindow: uint64(1024 * 1024 * 25),
+		MaxConnectionReceiveWindow:     uint64(config.MaxRecieveBufferSize),
 		InitialPacketSize:              uint16(config.InitialPacketSize),
 		MaxIncomingStreams:             maxConnections,
 		MaxIncomingUniStreams:          maxConnections,
+		EnableDatagrams:                false,
 	}
 
 	farListenAddr := fmt.Sprintf(":%d", config.NearPort)

@@ -145,13 +145,19 @@ func (s *SalmonBridge) openStream() (*quic.Stream, error) {
 		return nil, fmt.Errorf("QUIC connection is nil")
 	}
 
+	// Log current connection stats for debugging
+	// Uncomment if needed: log.Printf("NEAR: Bridge %s attempting to open stream", s.BridgeName)
+
 	maxAttempts := 2
 	var err error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		stream, streamErr := qconn.OpenStreamSync(context.Background())
+		// Add a timeout context to prevent indefinite blocking
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		stream, streamErr := qconn.OpenStreamSync(ctx)
+		cancel()
 		if streamErr != nil {
 			err = streamErr
-			log.Printf("NEAR: OpenStreamSync closed: %v", err)
+			log.Printf("NEAR: OpenStreamSync failed (attempt %d/%d): %v", attempt, maxAttempts, err)
 			s.mu.Lock()
 			s.bridgeDown = true
 			s.mu.Unlock()
