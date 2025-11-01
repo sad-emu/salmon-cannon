@@ -14,6 +14,7 @@ SalmonBridges:
     SBSocksListenPort: 1081
     SBHttpListenPort: 8080
     SBConnect: true
+    SBStatusCheckFrequency: 2s
     SBFarPort: 55001
     SBFarIp: "127.0.0.1"
     SBIdleTimeout: 10s

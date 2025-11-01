@@ -44,8 +44,8 @@ func (d *DurationString) UnmarshalYAML(value *yaml.Node) error {
 		*d = DurationString(time.Duration(v) * time.Second)
 		return nil
 	}
-	if !(strings.HasSuffix(s, "s") || strings.HasSuffix(s, "m")) {
-		return fmt.Errorf("invalid duration: %s (must end with 's' or 'm')", s)
+	if !(strings.HasSuffix(s, "s") || strings.HasSuffix(s, "m") || strings.HasSuffix(s, "ms")) {
+		return fmt.Errorf("invalid duration: %s (must end with 's' or 'm', or 'ms')", s)
 	}
 	dur, err := time.ParseDuration(s)
 	if err != nil {
@@ -112,12 +112,13 @@ func (s *SizeString) UnmarshalYAML(value *yaml.Node) error {
 
 // SalmonBridgeConfig holds config for one bridge instance
 type SalmonBridgeConfig struct {
-	Name            string `yaml:"SBName"`
-	SocksListenPort int    `yaml:"SBSocksListenPort"`
-	Connect         bool   `yaml:"SBConnect"`
-	NearPort        int    `yaml:"SBNearPort,omitempty"`
-	FarPort         int    `yaml:"SBFarPort,omitempty"`
-	FarIp           string `yaml:"SBFarIp"`
+	Name                 string         `yaml:"SBName"`
+	SocksListenPort      int            `yaml:"SBSocksListenPort"`
+	Connect              bool           `yaml:"SBConnect"`
+	StatusCheckFrequency DurationString `yaml:"SBStatusCheckFrequency"`
+	NearPort             int            `yaml:"SBNearPort,omitempty"`
+	FarPort              int            `yaml:"SBFarPort,omitempty"`
+	FarIp                string         `yaml:"SBFarIp"`
 
 	SocksListenAddress   string         `yaml:"SBSocksListenAddress,omitempty"`   // e.g. "127.0.0.1"
 	HttpListenPort       int            `yaml:"SBHttpListenPort,omitempty"`       // optional HTTP proxy listen port (near only)
@@ -166,7 +167,7 @@ func (c *SalmonCannonConfig) SetDefaults() {
 		}
 
 		if b.IdleTimeout == 0 {
-			c.Bridges[i].IdleTimeout = DurationString(10 * time.Second)
+			c.Bridges[i].IdleTimeout = DurationString(60 * time.Second)
 		}
 		if b.InitialPacketSize == 0 {
 			c.Bridges[i].InitialPacketSize = 1350

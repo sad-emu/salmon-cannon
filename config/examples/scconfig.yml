@@ -28,6 +28,7 @@ SalmonBridges:
   - SBName: "salmon-bridge-1-connect-full"
     SBSocksListenPort: 1080
     SBConnect: true
+    SBStatusCheckFrequency: 5s
     SBNearPort: 55001
     SBFarIp: "far-ip-here"
     SBHttpListenPort: 8080

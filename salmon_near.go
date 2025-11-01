@@ -142,7 +142,10 @@ func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
 		config:        config,
 	}
 
-	go near.runStatusChecks(2000)
+	if config.StatusCheckFrequency > 0 {
+		log.Printf("NEAR: Bridge %s starting status checks every %d ms", near.bridgeName, config.StatusCheckFrequency.Duration().Milliseconds())
+		go near.runStatusChecks(int(config.StatusCheckFrequency.Duration().Milliseconds()))
+	}
 
 	return near, nil
 }

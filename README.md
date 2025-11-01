@@ -76,6 +76,7 @@ SalmonBridges:
     SBSocksListenPort: 1080
     SBHttpListenPort: 8080
     SBConnect: true
+    SBStatusCheckFrequency: 2s
     SBFarPort: 55001
     SBFarIp: "far-ip-here"
     SBSocksListenAddress: "127.0.0.1"
@@ -118,6 +119,7 @@ SalmonBridges:
 - `SBSocksListenAddress`: SOCKS5 listen address (string, optional)
 - `SBHttpListenPort`: HTTP proxy listen port on near node (int, optional; 0 disables)
 - `SBConnect`: If true, acts as near node (initiates QUIC connection)
+- `SBStatusCheckFrequency`: Frequency of status checks for bridge health monitoring (duration e.g. 200ms or 5s, optional)
 - `SBNearPort`: QUIC port on near node - Far ONLY (int)
 - `SBFarPort`: QUIC port on far node - Near ONLY (int)
 - `SBFarIp`: Far node IP address for the near, acts as a IP/Hostname filter if set on the far
@@ -174,6 +176,7 @@ ApiConfig:
 #### Supported Requests
 
 - `/api/v1/bridges` - JSON List of loaded bridges
+- `/api/v1/status` - JSON List of bridge status including bandwidth usage, alive status, and ping metrics. Alive and ping metrics requires SBStatusCheckFrequency to be set on the NEAR bridge.
 
 ## Ratetest App
 
