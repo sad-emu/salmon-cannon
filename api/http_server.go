@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"salmoncannon/config"
+	"salmoncannon/limiter"
+	"salmoncannon/status"
 )
 
 // Server is a small HTTP API server that serves info about bridges.
@@ -29,6 +31,7 @@ func NewServer(cfg *config.SalmonCannonConfig, listenAddr string) *Server {
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/bridges", s.handleBridges)
+	mux.HandleFunc("/api/v1/status", s.handleStatus)
 
 	h := &http.Server{
 		Addr:    s.listenAddr,
@@ -68,6 +71,13 @@ type bridgeDTO struct {
 	ID      int    `json:"id"`
 }
 
+// statusDTO is the JSON shape returned for bandwidth status
+type statusDTO struct {
+	BridgeName           string  `json:"bridge_name"`
+	MaxRateBitsPerSec    int64   `json:"max_rate_bps"`
+	ActiveRateBitsPerSec float64 `json:"active_rate_bps"`
+}
+
 func (s *Server) handleBridges(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodGet {
@@ -78,6 +88,43 @@ func (s *Server) handleBridges(w http.ResponseWriter, r *http.Request) {
 	list := make([]bridgeDTO, 0, len(s.cfg.Bridges))
 	for i, b := range s.cfg.Bridges {
 		list = append(list, bridgeDTO{Name: b.Name, Circuit: b.Name, ID: i})
+	}
+
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(list); err != nil {
+		log.Printf("api: encode error: %v", err)
+	}
+}
+
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	list := make([]statusDTO, 0, len(s.cfg.Bridges))
+
+	// Import the status package to access the limiter registry
+	// We'll need to iterate through registered limiters
+	for _, b := range s.cfg.Bridges {
+		maxRateBps := int64(b.TotalBandwidthLimit) * 8 // Convert bytes to bits
+
+		// Try to get the active rate from the registered limiter
+		activeRateBps := 0.0
+		if limiterInterface, ok := status.GlobalConnMonitorRef.GetLimiter(b.Name); ok {
+			if limiter, ok := limiterInterface.(*limiter.SharedLimiter); ok {
+				// GetActiveRate returns bytes per second, convert to bits per second
+				activeRateBps = float64(limiter.GetActiveRate()) * 8.0
+			}
+		}
+
+		list = append(list, statusDTO{
+			BridgeName:           b.Name,
+			MaxRateBitsPerSec:    maxRateBps,
+			ActiveRateBitsPerSec: activeRateBps,
+		})
 	}
 
 	enc := json.NewEncoder(w)

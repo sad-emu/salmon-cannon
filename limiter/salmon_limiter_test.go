@@ -1,4 +1,4 @@
-package bridge
+package limiter
 
 import (
 	"bytes"
@@ -124,10 +124,19 @@ func TestSharedLimiter_WrapConn(t *testing.T) {
 	}
 }
 
+// Anything below 1 now returns a limiter with max bandwidth
+// func TestNewSharedLimiter_NegativeZero(t *testing.T) {
+// 	// Anything below zero retuns nil
+// 	sl := NewSharedLimiter(0)
+// 	if sl != nil && sl.bucket != nil {
+// 		t.Fatal("expected nil SharedLimiter and bucket for a <1 limit")
+// 	}
+// }
+
 func TestNewSharedLimiter_NegativeZero(t *testing.T) {
 	// Anything below zero retuns nil
 	sl := NewSharedLimiter(0)
-	if sl != nil && sl.bucket != nil {
-		t.Fatal("expected nil SharedLimiter and bucket for a <1 limit")
+	if sl == nil || sl.bucket == nil {
+		t.Fatal("expected max bandwith SharedLimiter and bucket for a <1 limit")
 	}
 }

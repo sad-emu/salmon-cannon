@@ -6,6 +6,8 @@ import (
 	"log"
 	"salmoncannon/bridge"
 	"salmoncannon/config"
+	"salmoncannon/limiter"
+	"salmoncannon/status"
 	"salmoncannon/utils"
 
 	quic "github.com/quic-go/quic-go"
@@ -22,8 +24,8 @@ func NewSalmonFar(config *config.SalmonBridgeConfig) (*SalmonFar, error) {
 		NextProtos:   []string{config.Name},
 	}
 
-	// TODO is this bits or bytes?
-	sl := bridge.NewSharedLimiter(int64(config.TotalBandwidthLimit))
+	sl := limiter.NewSharedLimiter(int64(config.TotalBandwidthLimit))
+	status.GlobalConnMonitorRef.RegisterLimiter(config.Name, sl)
 
 	qcfg := &quic.Config{
 		MaxIdleTimeout:                 config.IdleTimeout.Duration(),

@@ -7,6 +7,7 @@ import (
 	"net"
 	"salmoncannon/bridge"
 	"salmoncannon/config"
+	"salmoncannon/limiter"
 	"salmoncannon/status"
 	"strconv"
 	"sync"
@@ -114,7 +115,8 @@ func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
 		MaxIncomingUniStreams:          maxConnections,
 	}
 
-	sl := bridge.NewSharedLimiter(int64(config.TotalBandwidthLimit))
+	sl := limiter.NewSharedLimiter(int64(config.TotalBandwidthLimit))
+	status.GlobalConnMonitorRef.RegisterLimiter(config.Name, sl)
 
 	tlscfg := &tls.Config{
 		InsecureSkipVerify: true, // for prototype

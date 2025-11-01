@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"runtime"
+	"salmoncannon/limiter"
 	"salmoncannon/status"
 	"slices"
 	"sync"
@@ -25,7 +26,7 @@ type SalmonBridge struct {
 	qconn *quic.Conn // single long-lived QUIC connection
 	pconn net.PacketConn
 
-	sl *SharedLimiter
+	sl *limiter.SharedLimiter
 
 	bridgeDown          bool
 	connector           bool
@@ -36,7 +37,7 @@ type SalmonBridge struct {
 }
 
 func NewSalmonBridge(name string, address string, port int, tlscfg *tls.Config,
-	qcfg *quic.Config, sl *SharedLimiter, connector bool, interfaceName string,
+	qcfg *quic.Config, sl *limiter.SharedLimiter, connector bool, interfaceName string,
 	allowedOutAddresses []string) *SalmonBridge {
 	return &SalmonBridge{
 		BridgeName:          name,

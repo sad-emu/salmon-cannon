@@ -3,6 +3,8 @@ package status
 import (
 	"log"
 	"runtime"
+	"salmoncannon/limiter"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -15,9 +17,19 @@ type ConnectionMonitor struct {
 	totalSOCKS  atomic.Int64
 	totalHTTP   atomic.Int64
 	totalOUT    atomic.Int64
+
+	limiterMap sync.Map
 }
 
 var GlobalConnMonitorRef = &ConnectionMonitor{}
+
+func (cm *ConnectionMonitor) RegisterLimiter(name string, limiter *limiter.SharedLimiter) {
+	cm.limiterMap.Store(name, limiter)
+}
+
+func (cm *ConnectionMonitor) GetLimiter(name string) (interface{}, bool) {
+	return cm.limiterMap.Load(name)
+}
 
 func (cm *ConnectionMonitor) IncSOCKS() {
 	cm.activeSOCKS.Add(1)
@@ -65,6 +77,15 @@ func (cm *ConnectionMonitor) StartPeriodicLogging() {
 				runtime.NumGoroutine(),
 				m.HeapAlloc/1024/1024,
 			)
+
+			cm.limiterMap.Range(func(key, value interface{}) bool {
+				name := key.(string)
+				limiter := value.(*limiter.SharedLimiter)
+				activeRate := (float64(limiter.GetActiveRate()) / 1024.0 / 1024.0) * 8.0
+				log.Printf("MONITOR: Limiter for bridge %s - Active Rate: %.2f mbps",
+					name, activeRate)
+				return true
+			})
 		}
 	}()
 }

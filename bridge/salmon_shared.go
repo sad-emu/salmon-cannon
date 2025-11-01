@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"salmoncannon/limiter"
 	"sync"
 
 	quic "github.com/quic-go/quic-go"
@@ -49,7 +50,7 @@ func ReadTargetHeader(r io.Reader) (string, error) {
 // - When client->stream copy finishes, we FIN the stream write side (stream.Close()).
 // - When stream->client copy finishes, we close the TCP socket.
 // - On errors, we best-effort cancel the other direction to unblock.
-func BidiPipe(stream *quic.Stream, tcp net.Conn, limiter *SharedLimiter) {
+func BidiPipe(stream *quic.Stream, tcp net.Conn, limiter *limiter.SharedLimiter) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
