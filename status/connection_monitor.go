@@ -19,6 +19,8 @@ type ConnectionMonitor struct {
 	totalOUT    atomic.Int64
 
 	limiterMap sync.Map
+	statusMap  sync.Map
+	pingMap    sync.Map
 }
 
 var GlobalConnMonitorRef = &ConnectionMonitor{}
@@ -29,6 +31,28 @@ func (cm *ConnectionMonitor) RegisterLimiter(name string, limiter *limiter.Share
 
 func (cm *ConnectionMonitor) GetLimiter(name string) (interface{}, bool) {
 	return cm.limiterMap.Load(name)
+}
+
+func (cm *ConnectionMonitor) RegisterPing(name string, ping int64) {
+	cm.statusMap.Store(name, time.Now())
+	cm.pingMap.Store(name, ping)
+}
+
+func (cm *ConnectionMonitor) GetStatus(name string) bool {
+	lastStatusTime, ok := cm.statusMap.Load(name)
+	if !ok {
+		return ok
+	}
+	return ok && time.Since(lastStatusTime.(time.Time)) < 3*time.Second
+}
+
+func (cm *ConnectionMonitor) GetLastAliveMs(name string) int64 {
+	lastStatusTime, _ := cm.statusMap.Load(name)
+	return time.Since(lastStatusTime.(time.Time)).Milliseconds()
+}
+
+func (cm *ConnectionMonitor) GetPing(name string) (interface{}, bool) {
+	return cm.pingMap.Load(name)
 }
 
 func (cm *ConnectionMonitor) IncSOCKS() {

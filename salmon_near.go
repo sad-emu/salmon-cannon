@@ -11,6 +11,7 @@ import (
 	"salmoncannon/status"
 	"strconv"
 	"sync"
+	"time"
 
 	"slices"
 
@@ -100,6 +101,15 @@ type SalmonNear struct {
 	config        *config.SalmonBridgeConfig
 }
 
+func (n *SalmonNear) runStatusChecks(intervalMs int) {
+	ticker := time.NewTicker(time.Duration(intervalMs) * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		<-ticker.C
+		n.currentBridge.StatusCheck()
+	}
+}
+
 func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
 	bridgeAddress := config.FarIp
 	bridgePort := config.FarPort
@@ -131,6 +141,8 @@ func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
 		bridgeName:    config.Name,
 		config:        config,
 	}
+
+	go near.runStatusChecks(2000)
 
 	return near, nil
 }

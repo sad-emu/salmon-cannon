@@ -127,51 +127,106 @@ func (s *SalmonBridge) reconnectBridge() error {
 	return nil
 }
 
-// NewNearConn returns a net.Conn to the caller. Internally, it opens a new QUIC
-// stream, sends a small header identifying the remote target (host:port),
-// and then pipes bytes bidirectionally.
-func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
+func (s *SalmonBridge) StatusCheck() {
+	clientSide, internal, stream, err := s.tryConnect()
+	if err != nil {
+		log.Printf("NEAR: Bridge %s status check connect error: %v", s.BridgeName, err)
+		return
+	}
+	defer clientSide.Close()
+	defer internal.Close()
+	defer stream.Close()
+
+	startTime := time.Now()
+	if stream != nil {
+		written, err := stream.Write([]byte{STATUS_HEADER})
+		if err != nil && written != 1 {
+			stream.Close()
+			stream = nil
+			log.Printf("NEAR: Bridge %s status check write error: %v", s.BridgeName, err)
+		} else {
+			// Read response
+			buf := make([]byte, 1)
+			stream.SetReadDeadline(time.Now().Add(5 * time.Second))
+			n, err := stream.Read(buf)
+			if err != nil || n != 1 || buf[0] != STATUS_ACK {
+				stream.Close()
+				stream = nil
+				log.Printf("NEAR: Bridge %s status check read error: %v", s.BridgeName, err)
+			} else {
+				elapsed := time.Since(startTime)
+				// convert to ms
+				status.GlobalConnMonitorRef.RegisterPing(s.BridgeName, elapsed.Milliseconds())
+				written, err := stream.Write([]byte{STATUS_ACK})
+				if err != nil && written != 1 {
+					stream.Close()
+					stream = nil
+					log.Printf("NEAR: Bridge %s status check final write error: %v", s.BridgeName, err)
+				}
+				// Listen for the far side to close the stream
+				buf = make([]byte, 1)
+				stream.SetReadDeadline(time.Now().Add(3 * time.Second))
+				_, _ = stream.Read(buf)
+			}
+		}
+	}
+
+}
+
+func (s *SalmonBridge) tryConnect() (net.Conn, net.Conn, *quic.Stream, error) {
 
 	if s.connector {
 		// Only connectors can initiate connections.
 		if err := s.reconnectBridge(); err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 	}
 
 	// Create a local pipe: return one end to the caller, and connect the other to the QUIC stream.
 	clientSide, internal := net.Pipe()
 
+	// TODO maybe fix this mess????
+	maxAttempts := 2
+	stream := &quic.Stream{}
+	var err error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		// Open a fresh bidirectional QUIC stream for this logical connection.
+		stream, err = s.qconn.OpenStreamSync(context.Background())
+		if err != nil {
+			log.Printf("NEAR: OpenStreamSync closed: %v", err)
+			s.mu.Lock()
+			s.bridgeDown = true
+			s.mu.Unlock()
+			if attempt < maxAttempts {
+				log.Printf("NEAR: Bridge %s reconnected to far", s.BridgeName)
+				if s.connector {
+					// Only connectors can initiate connections.
+					_ = s.reconnectBridge()
+				}
+				continue
+			} else {
+				log.Printf("NEAR: Bridge %s failed to open stream after %d attempts", s.BridgeName, maxAttempts)
+				return nil, nil, nil, fmt.Errorf("failed to open stream after %d attempts: %w", maxAttempts, err)
+			}
+		}
+	}
+	return clientSide, internal, stream, nil
+}
+
+// NewNearConn returns a net.Conn to the caller. Internally, it opens a new QUIC
+// stream, sends a small header identifying the remote target (host:port),
+// and then pipes bytes bidirectionally.
+func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
+
+	clientSide, internal, stream, err := s.tryConnect()
+
+	if err != nil {
+		return nil, err
+	}
+
 	go func() {
 		// Ensure we close the internal end if anything fails here.
 		defer internal.Close()
-
-		// TODO maybe fix this mess????
-		maxAttempts := 2
-		stream := &quic.Stream{}
-		var err error
-		for attempt := 1; attempt <= maxAttempts; attempt++ {
-			// Open a fresh bidirectional QUIC stream for this logical connection.
-			stream, err = s.qconn.OpenStreamSync(context.Background())
-			if err != nil {
-				log.Printf("NEAR: OpenStreamSync closed: %v", err)
-				s.mu.Lock()
-				s.bridgeDown = true
-				s.mu.Unlock()
-				if attempt < maxAttempts {
-					log.Printf("NEAR: Bridge %s reconnected to far", s.BridgeName)
-					if s.connector {
-						// Only connectors can initiate connections.
-						_ = s.reconnectBridge()
-					}
-					continue
-				} else {
-					log.Printf("NEAR: Bridge %s failed to open stream after %d attempts", s.BridgeName, maxAttempts)
-					return
-				}
-			}
-		}
-		// Make sure the write side of the stream is FINed after sending client->far bytes.
 		defer stream.Close()
 
 		// 1) Send a small header carrying target address.
@@ -290,8 +345,46 @@ func (s *SalmonBridge) shouldBlockFarOutConn(outHostFull string) bool {
 	return !slices.Contains(s.allowedOutAddresses, nearAddr)
 }
 
+func (s *SalmonBridge) handleStatusPing(stream *quic.Stream) {
+	// Simple status response: number of active connections
+	startTime := time.Now()
+	_, err := stream.Write([]byte{STATUS_ACK})
+	if err != nil {
+		log.Printf("FAR: Bridge %s status write response error: %v", s.BridgeName, err)
+		return
+	}
+	// Read ACK back
+	buf := make([]byte, 1)
+	stream.SetReadDeadline(time.Now().Add(5 * time.Second))
+	n, err := stream.Read(buf)
+	if err != nil || n != 1 || buf[0] != STATUS_ACK {
+		log.Printf("FAR: Bridge %s status read ACK error: %v", s.BridgeName, err)
+		return
+	}
+	elapsed := time.Since(startTime)
+	// convert to ms
+	status.GlobalConnMonitorRef.RegisterPing(s.BridgeName, elapsed.Milliseconds())
+}
+
 func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 	// 1) Read target header.
+	headerType, err := ReadHeaderType(stream)
+	if err != nil {
+		log.Printf("FAR: read header error: %v", err)
+		stream.CancelRead(0)
+		stream.Close()
+		return
+	}
+
+	if headerType == STATUS_HEADER {
+		// Handle status request
+		// log.Printf("FAR: Bridge %s received status ping", s.BridgeName)
+		s.handleStatusPing(stream)
+		stream.Close()
+		// log.Printf("FAR: Bridge %s closed stream for status ping", s.BridgeName)
+		return
+	}
+
 	target, err := ReadTargetHeader(stream)
 	if err != nil {
 		log.Printf("FAR: read header error: %v", err)

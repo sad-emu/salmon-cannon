@@ -11,6 +11,10 @@ import (
 	quic "github.com/quic-go/quic-go"
 )
 
+const STATUS_HEADER = 0x01
+const CONNECT_HEADER = 0x02
+const STATUS_ACK = 0x03
+
 // =========================================================
 // Helpers
 // =========================================================
@@ -20,13 +24,22 @@ func WriteTargetHeader(w io.Writer, addr string) error {
 	if len(addr) > 65535 {
 		return fmt.Errorf("target address too long")
 	}
-	var hdr [2]byte
-	binary.BigEndian.PutUint16(hdr[:], uint16(len(addr)))
+	var hdr [3]byte
+	hdr[0] = CONNECT_HEADER
+	binary.BigEndian.PutUint16(hdr[1:], uint16(len(addr)))
 	if _, err := w.Write(hdr[:]); err != nil {
 		return err
 	}
 	_, err := w.Write([]byte(addr))
 	return err
+}
+
+func ReadHeaderType(r io.Reader) (byte, error) {
+	var hdrType [1]byte
+	if _, err := io.ReadFull(r, hdrType[:]); err != nil {
+		return 0, err
+	}
+	return hdrType[0], nil
 }
 
 func ReadTargetHeader(r io.Reader) (string, error) {

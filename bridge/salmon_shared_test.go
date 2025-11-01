@@ -18,15 +18,15 @@ func TestWriteTargetHeader_ValidInput(t *testing.T) {
 	}
 	// Should be 2 bytes length, then bytes of addr
 	data := buf.Bytes()
-	if len(data) < 2 {
+	if len(data) < 3 {
 		t.Fatalf("buffer too short: %v", data)
 	}
-	l := int(data[0])<<8 | int(data[1])
+	l := int(data[1])<<8 | int(data[2])
 	if l != len(addr) {
 		t.Errorf("expected length %d, got %d", len(addr), l)
 	}
-	if string(data[2:]) != addr {
-		t.Errorf("expected addr %q, got %q", addr, string(data[2:]))
+	if string(data[3:]) != addr {
+		t.Errorf("expected addr %q, got %q", addr, string(data[3:]))
 	}
 }
 
@@ -47,6 +47,14 @@ func TestReadTargetHeader_ValidInput(t *testing.T) {
 	addr := "localhost:9090"
 	buf := &bytes.Buffer{}
 	_ = WriteTargetHeader(buf, addr)
+
+	got1, err1 := ReadHeaderType(buf)
+	if err1 != nil {
+		t.Fatalf("expected nil err, got %v", err1)
+	}
+	if got1 != CONNECT_HEADER {
+		t.Errorf("expected header type %d, got %d", CONNECT_HEADER, got1)
+	}
 
 	got, err := ReadTargetHeader(buf)
 	if err != nil {
