@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"runtime"
+	"salmoncannon/status"
 	"slices"
 	"sync"
 	"syscall"
@@ -315,8 +316,14 @@ func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 		return
 	}
 	// Ensure we close both sides.
-	defer dst.Close()
-	defer stream.Close()
+	defer func() {
+		dst.Close()
+		stream.Close()
+		status.GlobalConnMonitorRef.DecOUT()
+	}()
+
+	// Increment active OUT connections
+	status.GlobalConnMonitorRef.IncOUT()
 
 	// 4) Pipe bytes both directions.
 	BidiPipe(stream, dst, s.sl)

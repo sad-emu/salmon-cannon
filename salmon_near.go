@@ -7,6 +7,7 @@ import (
 	"net"
 	"salmoncannon/bridge"
 	"salmoncannon/config"
+	"salmoncannon/status"
 	"strconv"
 	"sync"
 
@@ -141,10 +142,10 @@ func (n *SalmonNear) shouldBlockNearConn(nearHostFull string) bool {
 }
 
 func (n *SalmonNear) HandleRequest(conn net.Conn) {
-	globalConnMonitor.IncSOCKS()
+	status.GlobalConnMonitorRef.IncSOCKS()
 	defer func() {
 		conn.Close()
-		globalConnMonitor.DecSOCKS()
+		status.GlobalConnMonitorRef.DecSOCKS()
 	}()
 	//log.Printf("NEAR: Bridge %s accepted connection from %s", n.bridgeName, conn.RemoteAddr())
 	if n.shouldBlockNearConn(conn.RemoteAddr().String()) {
@@ -178,10 +179,10 @@ func (n *SalmonNear) HandleRequest(conn net.Conn) {
 
 // HandleHTTP implements a minimal HTTP CONNECT proxy
 func (n *SalmonNear) HandleHTTP(conn net.Conn) {
-	globalConnMonitor.IncHTTP()
+	status.GlobalConnMonitorRef.IncHTTP()
 	defer func() {
 		conn.Close()
-		globalConnMonitor.DecHTTP()
+		status.GlobalConnMonitorRef.DecHTTP()
 	}()
 	// Minimal parse: read first line
 	buf := make([]byte, 4096)

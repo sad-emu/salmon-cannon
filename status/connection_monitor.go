@@ -1,4 +1,4 @@
-package main
+package status
 
 import (
 	"log"
@@ -11,11 +11,13 @@ import (
 type ConnectionMonitor struct {
 	activeSOCKS atomic.Int64
 	activeHTTP  atomic.Int64
+	activeOUT   atomic.Int64
 	totalSOCKS  atomic.Int64
 	totalHTTP   atomic.Int64
+	totalOUT    atomic.Int64
 }
 
-var globalConnMonitor = &ConnectionMonitor{}
+var GlobalConnMonitorRef = &ConnectionMonitor{}
 
 func (cm *ConnectionMonitor) IncSOCKS() {
 	cm.activeSOCKS.Add(1)
@@ -35,6 +37,15 @@ func (cm *ConnectionMonitor) DecHTTP() {
 	cm.activeHTTP.Add(-1)
 }
 
+func (cm *ConnectionMonitor) IncOUT() {
+	cm.activeOUT.Add(1)
+	cm.totalOUT.Add(1)
+}
+
+func (cm *ConnectionMonitor) DecOUT() {
+	cm.activeOUT.Add(-1)
+}
+
 func (cm *ConnectionMonitor) StartPeriodicLogging() {
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
@@ -44,11 +55,13 @@ func (cm *ConnectionMonitor) StartPeriodicLogging() {
 			var m runtime.MemStats
 			runtime.ReadMemStats(&m)
 
-			log.Printf("MONITOR: Active connections - SOCKS: %d, HTTP: %d | Total served - SOCKS: %d, HTTP: %d | Goroutines: %d | HeapAlloc: %d MB",
+			log.Printf("MONITOR: Active connections - SOCKS: %d, HTTP: %d, OUT: %d | Total served - SOCKS: %d, HTTP: %d, OUT: %d | Goroutines: %d | HeapAlloc: %d MB",
 				cm.activeSOCKS.Load(),
 				cm.activeHTTP.Load(),
+				cm.activeOUT.Load(),
 				cm.totalSOCKS.Load(),
 				cm.totalHTTP.Load(),
+				cm.totalOUT.Load(),
 				runtime.NumGoroutine(),
 				m.HeapAlloc/1024/1024,
 			)

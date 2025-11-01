@@ -6,6 +6,7 @@ import (
 	"os"
 	"salmoncannon/api"
 	"salmoncannon/config"
+	"salmoncannon/status"
 	"strconv"
 	"sync"
 
@@ -18,7 +19,7 @@ func main() {
 	log.Printf("Salmon Cannon version %s starting...", VERSION)
 
 	// Start connection monitoring (logs every 30 seconds)
-	globalConnMonitor.StartPeriodicLogging()
+	status.GlobalConnMonitorRef.StartPeriodicLogging()
 
 	cannonConfig, configErr := config.LoadConfig("scconfig.yml")
 	log.Printf("Loaded %d salmon bridges", len(cannonConfig.Bridges))
