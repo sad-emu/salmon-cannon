@@ -62,14 +62,15 @@ func relayConnData(src net.Conn, dst net.Conn) {
 	wg.Add(2)
 
 	// Signal channel to coordinate shutdown
-	srcDone := make(chan struct{})
-	dstDone := make(chan struct{})
+	done := make(chan struct{})
 
 	// Copy src -> dst
 	go func() {
 		defer wg.Done()
 		io.Copy(dst, src)
-		close(srcDone)
+		// Signal other goroutine to stop by setting deadline
+		dst.SetReadDeadline(time.Now())
+		src.SetWriteDeadline(time.Now())
 		// Try to signal the other direction by closing write side if supported
 		if conn, ok := dst.(interface{ CloseWrite() error }); ok {
 			conn.CloseWrite()
@@ -80,7 +81,9 @@ func relayConnData(src net.Conn, dst net.Conn) {
 	go func() {
 		defer wg.Done()
 		io.Copy(src, dst)
-		close(dstDone)
+		// Signal other goroutine to stop by setting deadline
+		src.SetReadDeadline(time.Now())
+		dst.SetWriteDeadline(time.Now())
 		// Try to signal the other direction by closing write side if supported
 		if conn, ok := src.(interface{ CloseWrite() error }); ok {
 			conn.CloseWrite()
@@ -89,6 +92,7 @@ func relayConnData(src net.Conn, dst net.Conn) {
 
 	// Wait for BOTH directions to complete
 	wg.Wait()
+	close(done)
 
 	// Close both connections
 	src.Close()
@@ -172,7 +176,10 @@ func (n *SalmonNear) HandleRequest(conn net.Conn) {
 
 	host, port, err := HandleSocksHandshake(conn, n.bridgeName)
 	if err != nil {
-		log.Printf("NEAR: Bridge %s Failed to handle SOCKS handshake: %v", n.bridgeName, err)
+		// Only log non-EOF errors - EOF just means client disconnected (common with health checks)
+		if err != io.EOF {
+			log.Printf("NEAR: Bridge %s Failed to handle SOCKS handshake: %v", n.bridgeName, err)
+		}
 		return
 	}
 

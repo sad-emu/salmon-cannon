@@ -9,8 +9,9 @@ import (
 
 // Helper function to read exact number of bytes
 func readExact(conn net.Conn, buf []byte, n int) (int, error) {
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	defer conn.SetReadDeadline(time.Time{}) // Clear deadline
+	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return 0, err
+	}
 
 	total := 0
 	for total < n {
@@ -25,12 +26,14 @@ func readExact(conn net.Conn, buf []byte, n int) (int, error) {
 
 func handleUserPassAuth(conn net.Conn) error {
 	// Accept USER/PASS authentication
-	conn.Write(handshakeUserPass)
+	if _, err := conn.Write(handshakeUserPass); err != nil {
+		return fmt.Errorf("write handshake: %w", err)
+	}
 
 	// Read version
 	verBuf := make([]byte, 1)
 	if _, err := readExact(conn, verBuf, 1); err != nil {
-		return err
+		return fmt.Errorf("read auth version: %w", err)
 	}
 	if verBuf[0] != 0x01 {
 		conn.Write([]byte{0x01, 0xFF}) // version 1, failure
@@ -40,29 +43,31 @@ func handleUserPassAuth(conn net.Conn) error {
 	// Read username
 	ulenBuf := make([]byte, 1)
 	if _, err := readExact(conn, ulenBuf, 1); err != nil {
-		return err
+		return fmt.Errorf("read username length: %w", err)
 	}
 	ulen := int(ulenBuf[0])
 	usernameBuf := make([]byte, ulen)
 	if _, err := readExact(conn, usernameBuf, ulen); err != nil {
-		return err
+		return fmt.Errorf("read username: %w", err)
 	}
 
 	// Read password
 	plenBuf := make([]byte, 1)
 	if _, err := readExact(conn, plenBuf, 1); err != nil {
-		return err
+		return fmt.Errorf("read password length: %w", err)
 	}
 	plen := int(plenBuf[0])
 	passwordBuf := make([]byte, plen)
 	if _, err := readExact(conn, passwordBuf, plen); err != nil {
-		return err
+		return fmt.Errorf("read password: %w", err)
 	}
 
 	log.Printf("NEAR: Received auth - Username: %s, Password: %s", string(usernameBuf), string(passwordBuf))
 
 	// TODO handle username/password verification here
-	conn.Write(authReplySuccess) // version 1, success
+	if _, err := conn.Write(authReplySuccess); err != nil {
+		return fmt.Errorf("write auth success: %w", err)
+	}
 	return nil
 }
 
@@ -71,7 +76,8 @@ func HandleSocksHandshake(conn net.Conn, bridgeName string) (string, int, error)
 	headerBuf := make([]byte, 2)
 	read, err := readExact(conn, headerBuf, 2)
 	if err != nil {
-		log.Printf("Step 1")
+		// Don't wrap EOF errors - they just mean client disconnected before sending data
+		// This is common with health checks, port scanners, or cancelled connections
 		return "", 0, err
 	}
 	if read != 2 {
@@ -90,8 +96,7 @@ func HandleSocksHandshake(conn net.Conn, bridgeName string) (string, int, error)
 	if numMethods > 0 {
 		read, err = readExact(conn, methodsBuf, numMethods)
 		if err != nil {
-			log.Printf("Step 2")
-			return "", 0, err
+			return "", 0, fmt.Errorf("read auth methods: %w", err)
 		}
 		if read != numMethods {
 			return "", 0, fmt.Errorf("incomplete SOCKS methods")
@@ -112,12 +117,13 @@ func HandleSocksHandshake(conn net.Conn, bridgeName string) (string, int, error)
 	}
 
 	if foundNoAuth {
-		conn.Write(handshakeNoAuth)
+		if _, err := conn.Write(handshakeNoAuth); err != nil {
+			return "", 0, fmt.Errorf("write no auth response: %w", err)
+		}
 	} else if foundUserPass {
 		err = handleUserPassAuth(conn)
 		if err != nil {
-			log.Printf("Step 3")
-			return "", 0, err
+			return "", 0, fmt.Errorf("user/pass auth failed: %w", err)
 		}
 	} else {
 		conn.Write(handshakeNoAcceptable)
@@ -128,8 +134,7 @@ func HandleSocksHandshake(conn net.Conn, bridgeName string) (string, int, error)
 	requestHeader := make([]byte, 4)
 	read, err = readExact(conn, requestHeader, 4)
 	if err != nil {
-		log.Printf("Step 4")
-		return "", 0, err
+		return "", 0, fmt.Errorf("read request header: %w", err)
 	}
 	if read != 4 {
 		return "", 0, fmt.Errorf("incomplete SOCKS request header")
@@ -148,8 +153,7 @@ func HandleSocksHandshake(conn net.Conn, bridgeName string) (string, int, error)
 		case socksAddrTypeIPv4:
 			addrBuf := make([]byte, ipv4Len+portLen)
 			if _, err := readExact(conn, addrBuf, ipv4Len+portLen); err != nil {
-				log.Printf("Step 5")
-				return "", 0, err
+				return "", 0, fmt.Errorf("read IPv4 address: %w", err)
 			}
 			host = net.IP(addrBuf[:ipv4Len]).String()
 			port = int(addrBuf[ipv4Len])<<8 | int(addrBuf[ipv4Len+1])
@@ -157,15 +161,13 @@ func HandleSocksHandshake(conn net.Conn, bridgeName string) (string, int, error)
 		case socksAddrTypeDomain:
 			dlenBuf := make([]byte, 1)
 			if _, err := readExact(conn, dlenBuf, 1); err != nil {
-				log.Printf("Step 6")
-				return "", 0, err
+				return "", 0, fmt.Errorf("read domain length: %w", err)
 			}
 			dlen := int(dlenBuf[0])
 
 			domainPortBuf := make([]byte, dlen+portLen)
 			if _, err := readExact(conn, domainPortBuf, dlen+portLen); err != nil {
-				log.Printf("Step 7")
-				return "", 0, err
+				return "", 0, fmt.Errorf("read domain and port: %w", err)
 			}
 			host = string(domainPortBuf[:dlen])
 			port = int(domainPortBuf[dlen])<<8 | int(domainPortBuf[dlen+1])
@@ -173,8 +175,7 @@ func HandleSocksHandshake(conn net.Conn, bridgeName string) (string, int, error)
 		case socksAddrTypeIPv6:
 			addrBuf := make([]byte, ipv6Len+portLen)
 			if _, err := readExact(conn, addrBuf, ipv6Len+portLen); err != nil {
-				log.Printf("Step 8")
-				return "", 0, err
+				return "", 0, fmt.Errorf("read IPv6 address: %w", err)
 			}
 			host = net.IP(addrBuf[:ipv6Len]).String()
 			port = int(addrBuf[ipv6Len])<<8 | int(addrBuf[ipv6Len+1])

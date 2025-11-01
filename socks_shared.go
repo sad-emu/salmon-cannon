@@ -20,7 +20,7 @@ const (
 	ipv6Len               = 16
 	portLen               = 2
 
-	maxConnections = 20000
+	maxConnections = 2000
 )
 
 var (

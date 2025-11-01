@@ -127,64 +127,12 @@ func (s *SalmonBridge) reconnectBridge() error {
 	return nil
 }
 
-func (s *SalmonBridge) StatusCheck() {
-	clientSide, internal, stream, err := s.tryConnect()
-	if err != nil {
-		log.Printf("NEAR: Bridge %s status check connect error: %v", s.BridgeName, err)
-		return
-	}
-	if clientSide != nil {
-		defer clientSide.Close()
-	}
-	if internal != nil {
-		defer internal.Close()
-	}
-	if stream != nil {
-		defer stream.Close()
-	}
-
-	startTime := time.Now()
-	if stream != nil {
-		written, err := stream.Write([]byte{STATUS_HEADER})
-		if err != nil && written != 1 {
-			stream.Close()
-			stream = nil
-			log.Printf("NEAR: Bridge %s status check write error: %v", s.BridgeName, err)
-		} else {
-			// Read response
-			buf := make([]byte, 1)
-			stream.SetReadDeadline(time.Now().Add(5 * time.Second))
-			n, err := stream.Read(buf)
-			if err != nil || n != 1 || buf[0] != STATUS_ACK {
-				stream.Close()
-				stream = nil
-				log.Printf("NEAR: Bridge %s status check read error: %v", s.BridgeName, err)
-			} else {
-				elapsed := time.Since(startTime)
-				// convert to ms
-				status.GlobalConnMonitorRef.RegisterPing(s.BridgeName, elapsed.Milliseconds())
-				written, err := stream.Write([]byte{STATUS_ACK})
-				if err != nil && written != 1 {
-					stream.Close()
-					stream = nil
-					log.Printf("NEAR: Bridge %s status check final write error: %v", s.BridgeName, err)
-				}
-				// Listen for the far side to close the stream
-				buf = make([]byte, 1)
-				stream.SetReadDeadline(time.Now().Add(3 * time.Second))
-				_, _ = stream.Read(buf)
-			}
-		}
-	}
-
-}
-
-func (s *SalmonBridge) tryConnect() (net.Conn, net.Conn, *quic.Stream, error) {
-
+// openStream opens a QUIC stream, handling reconnection if needed
+func (s *SalmonBridge) openStream() (*quic.Stream, error) {
 	if s.connector {
 		// Only connectors can initiate connections.
 		if err := s.reconnectBridge(); err != nil {
-			return nil, nil, nil, err
+			return nil, err
 		}
 	}
 
@@ -194,20 +142,15 @@ func (s *SalmonBridge) tryConnect() (net.Conn, net.Conn, *quic.Stream, error) {
 	s.mu.Unlock()
 
 	if qconn == nil {
-		return nil, nil, nil, fmt.Errorf("QUIC connection is nil")
+		return nil, fmt.Errorf("QUIC connection is nil")
 	}
 
-	// Create a local pipe: return one end to the caller, and connect the other to the QUIC stream.
-	clientSide, internal := net.Pipe()
-
-	// TODO maybe fix this mess????
 	maxAttempts := 2
-	stream := &quic.Stream{}
 	var err error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		// Open a fresh bidirectional QUIC stream for this logical connection.
-		stream, err = qconn.OpenStreamSync(context.Background())
-		if err != nil {
+		stream, streamErr := qconn.OpenStreamSync(context.Background())
+		if streamErr != nil {
+			err = streamErr
 			log.Printf("NEAR: OpenStreamSync closed: %v", err)
 			s.mu.Lock()
 			s.bridgeDown = true
@@ -215,30 +158,83 @@ func (s *SalmonBridge) tryConnect() (net.Conn, net.Conn, *quic.Stream, error) {
 			if attempt < maxAttempts {
 				log.Printf("NEAR: Bridge %s attempting reconnect to far", s.BridgeName)
 				if s.connector {
-					// Only connectors can initiate connections.
 					if reconErr := s.reconnectBridge(); reconErr != nil {
 						log.Printf("NEAR: Bridge %s reconnect failed: %v", s.BridgeName, reconErr)
-						return nil, nil, nil, fmt.Errorf("reconnect failed: %w", reconErr)
+						return nil, fmt.Errorf("reconnect failed: %w", reconErr)
 					}
 					// Update local reference after successful reconnect
 					s.mu.Lock()
 					qconn = s.qconn
 					s.mu.Unlock()
 					if qconn == nil {
-						return nil, nil, nil, fmt.Errorf("QUIC connection is nil after reconnect")
+						return nil, fmt.Errorf("QUIC connection is nil after reconnect")
 					}
 				}
 				continue
 			} else {
 				log.Printf("NEAR: Bridge %s failed to open stream after %d attempts", s.BridgeName, maxAttempts)
-				return nil, nil, nil, fmt.Errorf("failed to open stream after %d attempts: %w", maxAttempts, err)
+				return nil, fmt.Errorf("failed to open stream after %d attempts: %w", maxAttempts, err)
 			}
 		}
+		// Success
+		return stream, nil
 	}
-	return clientSide, internal, stream, nil
+	return nil, err
 }
 
-// NewNearConn returns a net.Conn to the caller. Internally, it opens a new QUIC
+func (s *SalmonBridge) StatusCheck() {
+	stream, err := s.openStream()
+	if err != nil {
+		log.Printf("NEAR: Bridge %s status check connect error: %v", s.BridgeName, err)
+		return
+	}
+	defer stream.Close()
+
+	startTime := time.Now()
+	written, err := stream.Write([]byte{STATUS_HEADER})
+	if err != nil || written != 1 {
+		log.Printf("NEAR: Bridge %s status check write error: %v", s.BridgeName, err)
+		return
+	}
+
+	// Read response
+	buf := make([]byte, 1)
+	stream.SetReadDeadline(time.Now().Add(5 * time.Second))
+	n, err := stream.Read(buf)
+	if err != nil || n != 1 || buf[0] != STATUS_ACK {
+		log.Printf("NEAR: Bridge %s status check read error: %v", s.BridgeName, err)
+		return
+	}
+
+	elapsed := time.Since(startTime)
+	// convert to ms
+	status.GlobalConnMonitorRef.RegisterPing(s.BridgeName, elapsed.Milliseconds())
+
+	written, err = stream.Write([]byte{STATUS_ACK})
+	if err != nil || written != 1 {
+		log.Printf("NEAR: Bridge %s status check final write error: %v", s.BridgeName, err)
+		return
+	}
+
+	// Listen for the far side to close the stream
+	buf = make([]byte, 1)
+	stream.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_, _ = stream.Read(buf)
+}
+
+func (s *SalmonBridge) tryConnect() (net.Conn, net.Conn, *quic.Stream, error) {
+	// Open the stream first
+	stream, err := s.openStream()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	// Only create the pipe after we successfully have a stream
+	// This prevents pipe leaks if stream creation fails
+	clientSide, internal := net.Pipe()
+
+	return clientSide, internal, stream, nil
+} // NewNearConn returns a net.Conn to the caller. Internally, it opens a new QUIC
 // stream, sends a small header identifying the remote target (host:port),
 // and then pipes bytes bidirectionally.
 func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
