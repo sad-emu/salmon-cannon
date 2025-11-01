@@ -72,7 +72,7 @@ func TestSetDefaults(t *testing.T) {
 	}
 	cfg.SetDefaults()
 	b := cfg.Bridges[0]
-	if b.IdleTimeout != DurationString(10*time.Second) {
+	if b.IdleTimeout != DurationString(60*time.Second) {
 		t.Errorf("IdleTimeout default not set")
 	}
 	if b.InitialPacketSize != 1350 {
