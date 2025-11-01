@@ -133,9 +133,15 @@ func (s *SalmonBridge) StatusCheck() {
 		log.Printf("NEAR: Bridge %s status check connect error: %v", s.BridgeName, err)
 		return
 	}
-	defer clientSide.Close()
-	defer internal.Close()
-	defer stream.Close()
+	if clientSide != nil {
+		defer clientSide.Close()
+	}
+	if internal != nil {
+		defer internal.Close()
+	}
+	if stream != nil {
+		defer stream.Close()
+	}
 
 	startTime := time.Now()
 	if stream != nil {
@@ -182,6 +188,15 @@ func (s *SalmonBridge) tryConnect() (net.Conn, net.Conn, *quic.Stream, error) {
 		}
 	}
 
+	// Check if connection is valid before proceeding
+	s.mu.Lock()
+	qconn := s.qconn
+	s.mu.Unlock()
+
+	if qconn == nil {
+		return nil, nil, nil, fmt.Errorf("QUIC connection is nil")
+	}
+
 	// Create a local pipe: return one end to the caller, and connect the other to the QUIC stream.
 	clientSide, internal := net.Pipe()
 
@@ -191,17 +206,27 @@ func (s *SalmonBridge) tryConnect() (net.Conn, net.Conn, *quic.Stream, error) {
 	var err error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		// Open a fresh bidirectional QUIC stream for this logical connection.
-		stream, err = s.qconn.OpenStreamSync(context.Background())
+		stream, err = qconn.OpenStreamSync(context.Background())
 		if err != nil {
 			log.Printf("NEAR: OpenStreamSync closed: %v", err)
 			s.mu.Lock()
 			s.bridgeDown = true
 			s.mu.Unlock()
 			if attempt < maxAttempts {
-				log.Printf("NEAR: Bridge %s reconnected to far", s.BridgeName)
+				log.Printf("NEAR: Bridge %s attempting reconnect to far", s.BridgeName)
 				if s.connector {
 					// Only connectors can initiate connections.
-					_ = s.reconnectBridge()
+					if reconErr := s.reconnectBridge(); reconErr != nil {
+						log.Printf("NEAR: Bridge %s reconnect failed: %v", s.BridgeName, reconErr)
+						return nil, nil, nil, fmt.Errorf("reconnect failed: %w", reconErr)
+					}
+					// Update local reference after successful reconnect
+					s.mu.Lock()
+					qconn = s.qconn
+					s.mu.Unlock()
+					if qconn == nil {
+						return nil, nil, nil, fmt.Errorf("QUIC connection is nil after reconnect")
+					}
 				}
 				continue
 			} else {
