@@ -9,7 +9,6 @@ import (
 	"salmoncannon/limiter"
 	"salmoncannon/status"
 	"slices"
-	"sync"
 	"time"
 
 	quic "github.com/quic-go/quic-go"
@@ -17,31 +16,22 @@ import (
 
 type SalmonBridge struct {
 	BridgeName string
+	sq         *connections.SalmonQuic // Handler for QUIC connections
 
-	mu sync.Mutex
-	sq *connections.SalmonQuic // Handler for QUIC connections
-
-	sl *limiter.SharedLimiter
-
-	bridgeDown          bool
+	sl                  *limiter.SharedLimiter
 	connector           bool
-	qcfg                *quic.Config
-	interfaceName       string
 	allowedOutAddresses []string
 }
 
 func NewSalmonBridge(name string, address string, port int, tlscfg *tls.Config,
 	qcfg *quic.Config, sl *limiter.SharedLimiter, connector bool, interfaceName string,
 	allowedOutAddresses []string) *SalmonBridge {
-	sq := connections.NewSalmonQuic(port, address, name, tlscfg, qcfg, sl, interfaceName)
+	sq := connections.NewSalmonQuic(port, address, name, tlscfg, qcfg, interfaceName)
 	return &SalmonBridge{
 		BridgeName:          name,
-		qcfg:                qcfg,
 		sl:                  sl,
 		sq:                  sq,
 		connector:           connector,
-		bridgeDown:          true,
-		interfaceName:       interfaceName,
 		allowedOutAddresses: allowedOutAddresses,
 	}
 }
