@@ -25,6 +25,18 @@ type QuicConfig struct {
 	IdleCleanupTimeout      DurationString `yaml:"IdleCleanupTimeout,omitempty"` // seconds
 }
 
+func (q *QuicConfig) SetDefaults() {
+	if q.MaxConnectionsPerBridge == 0 {
+		q.MaxConnectionsPerBridge = 500
+	}
+	if q.MaxStreamsPerConnection == 0 {
+		q.MaxStreamsPerConnection = 1
+	}
+	if q.IdleCleanupTimeout == 0 {
+		q.IdleCleanupTimeout = DurationString(5 * time.Minute)
+	}
+}
+
 type ApiConfig struct {
 	Hostname string `yaml:"Hostname,omitempty"`
 	Port     int    `yaml:"Port,omitempty"`

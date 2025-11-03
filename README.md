@@ -113,7 +113,7 @@ SalmonBridges:
 3. **Start the far node** in accept mode to receive QUIC connections and proxy TCP traffic.
 4. **Point your SOCKS5 client** (e.g., browser, curl, proxychains) to the near node's listen address and port. curl --socks5-hostname 127.0.0.1:1080 https://www.google.com/
 
-## Configuration Reference
+## Bridges Configuration Reference
 - `SBName`: Bridge name (string)
 - `SBSocksListenPort`: SOCKS5 listen port (int)
 - `SBSocksListenAddress`: SOCKS5 listen address (string, optional)
@@ -177,6 +177,27 @@ ApiConfig:
 
 - `/api/v1/bridges` - JSON List of loaded bridges
 - `/api/v1/status` - JSON List of bridge status including bandwidth usage, alive status, and ping metrics. Alive and ping metrics requires SBStatusCheckFrequency to be set on the NEAR bridge.
+
+### QUIC Configuration (`QuicConfig`)
+The `QuicConfig` section controls QUIC connection pooling behavior, which is critical for handling high numbers of concurrent streams. Due to QUIC flow control limitations, a single QUIC connection has a practical limit of concurrent streams. SalmonCannon implements connection pooling to overcome this limitation.
+
+```yaml
+QuicConfig:
+  MaxConnectionsPerBridge: 500
+  MaxStreamsPerConnection: 1
+  IdleCleanupTimeout: 5m
+```
+
+- `MaxConnectionsPerBridge`: Maximum number of QUIC connections in the pool per bridge (int, default: 500). When this limit is reached, new streams will wait for existing streams to complete.
+- `MaxStreamsPerConnection`: Maximum concurrent streams per QUIC connection (int, default: 1). Setting this to 1 ensures optimal performance by creating a new connection for each stream. Higher values may work but can hit QUIC flow control limits (~100-500 streams).
+- `IdleCleanupTimeout`: Duration after which idle QUIC connections are removed from the pool (duration e.g. 5m or 10m, default: 5m). Connections with no active streams for this duration will be closed to conserve resources.
+
+**Connection Pooling Behavior:**
+- When a new TCP stream needs to be proxied, the bridge selects the oldest connection with available capacity
+- If no suitable connection exists, a new QUIC connection is created (up to `MaxConnectionsPerBridge`)
+- The bridge tracks active streams per connection using atomic counters for thread safety
+- Idle connections are automatically cleaned up after `IdleCleanupTimeout`
+- When a stream completes, its cleanup function decrements the connection's stream counter
 
 ## Ratetest App
 
