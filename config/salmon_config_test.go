@@ -370,8 +370,8 @@ func TestQuicConfig_SetDefaults(t *testing.T) {
 			name:  "all zero values",
 			input: QuicConfig{},
 			expected: QuicConfig{
-				MaxConnectionsPerBridge: 500,
-				MaxStreamsPerConnection: 1,
+				MaxConnectionsPerBridge: 1,
+				MaxStreamsPerConnection: 500,
 				IdleCleanupTimeout:      DurationString(5 * time.Minute),
 			},
 		},
@@ -384,7 +384,7 @@ func TestQuicConfig_SetDefaults(t *testing.T) {
 			},
 			expected: QuicConfig{
 				MaxConnectionsPerBridge: 100,
-				MaxStreamsPerConnection: 1,
+				MaxStreamsPerConnection: 500,
 				IdleCleanupTimeout:      DurationString(5 * time.Minute),
 			},
 		},
@@ -434,14 +434,14 @@ func TestQuicConfig_UnmarshalYAML(t *testing.T) {
 		{
 			name: "valid config with all fields",
 			yaml: `
-MaxConnectionsPerBridge: 200
+MaxConnectionsPerBridge: 5
 MaxStreamsPerConnection: 10
 IdleCleanupTimeout: 10m
 `,
 			expectErr: false,
 			validate: func(t *testing.T, cfg *QuicConfig) {
-				if cfg.MaxConnectionsPerBridge != 200 {
-					t.Errorf("MaxConnectionsPerBridge: got %d, want 200", cfg.MaxConnectionsPerBridge)
+				if cfg.MaxConnectionsPerBridge != 5 {
+					t.Errorf("MaxConnectionsPerBridge: got %d, want 5", cfg.MaxConnectionsPerBridge)
 				}
 				if cfg.MaxStreamsPerConnection != 10 {
 					t.Errorf("MaxStreamsPerConnection: got %d, want 10", cfg.MaxStreamsPerConnection)
@@ -454,15 +454,15 @@ IdleCleanupTimeout: 10m
 		{
 			name: "partial config uses defaults",
 			yaml: `
-MaxConnectionsPerBridge: 100
+MaxConnectionsPerBridge: 20
 `,
 			expectErr: false,
 			validate: func(t *testing.T, cfg *QuicConfig) {
-				if cfg.MaxConnectionsPerBridge != 100 {
-					t.Errorf("MaxConnectionsPerBridge: got %d, want 100", cfg.MaxConnectionsPerBridge)
+				if cfg.MaxConnectionsPerBridge != 20 {
+					t.Errorf("MaxConnectionsPerBridge: got %d, want 20", cfg.MaxConnectionsPerBridge)
 				}
-				if cfg.MaxStreamsPerConnection != 1 {
-					t.Errorf("MaxStreamsPerConnection: got %d, want 1 (default)", cfg.MaxStreamsPerConnection)
+				if cfg.MaxStreamsPerConnection != 500 {
+					t.Errorf("MaxStreamsPerConnection: got %d, want 500 (default)", cfg.MaxStreamsPerConnection)
 				}
 				if cfg.IdleCleanupTimeout != DurationString(5*time.Minute) {
 					t.Errorf("IdleCleanupTimeout: got %v, want 5m (default)", cfg.IdleCleanupTimeout)
@@ -474,11 +474,11 @@ MaxConnectionsPerBridge: 100
 			yaml:      `{}`,
 			expectErr: false,
 			validate: func(t *testing.T, cfg *QuicConfig) {
-				if cfg.MaxConnectionsPerBridge != 500 {
-					t.Errorf("MaxConnectionsPerBridge: got %d, want 500 (default)", cfg.MaxConnectionsPerBridge)
+				if cfg.MaxConnectionsPerBridge != 1 {
+					t.Errorf("MaxConnectionsPerBridge: got %d, want 1 (default)", cfg.MaxConnectionsPerBridge)
 				}
-				if cfg.MaxStreamsPerConnection != 1 {
-					t.Errorf("MaxStreamsPerConnection: got %d, want 1 (default)", cfg.MaxStreamsPerConnection)
+				if cfg.MaxStreamsPerConnection != 500 {
+					t.Errorf("MaxStreamsPerConnection: got %d, want 500 (default)", cfg.MaxStreamsPerConnection)
 				}
 				if cfg.IdleCleanupTimeout != DurationString(5*time.Minute) {
 					t.Errorf("IdleCleanupTimeout: got %v, want 5m (default)", cfg.IdleCleanupTimeout)

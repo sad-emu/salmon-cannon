@@ -27,10 +27,10 @@ type QuicConfig struct {
 
 func (q *QuicConfig) SetDefaults() {
 	if q.MaxConnectionsPerBridge == 0 {
-		q.MaxConnectionsPerBridge = 500
+		q.MaxConnectionsPerBridge = 1
 	}
 	if q.MaxStreamsPerConnection == 0 {
-		q.MaxStreamsPerConnection = 1
+		q.MaxStreamsPerConnection = 500
 	}
 	if q.IdleCleanupTimeout == 0 {
 		q.IdleCleanupTimeout = DurationString(5 * time.Minute)
@@ -217,8 +217,8 @@ func (c *SalmonCannonConfig) SetDefaults() {
 	}
 	if c.QuicConfig == nil {
 		c.QuicConfig = &QuicConfig{
-			MaxConnectionsPerBridge: 500,
-			MaxStreamsPerConnection: 1,
+			MaxConnectionsPerBridge: 1,
+			MaxStreamsPerConnection: 500,
 			IdleCleanupTimeout:      DurationString(5 * time.Minute),
 		}
 	} else {
@@ -226,7 +226,7 @@ func (c *SalmonCannonConfig) SetDefaults() {
 			c.QuicConfig.MaxConnectionsPerBridge = 500
 		}
 		if c.QuicConfig.MaxStreamsPerConnection == 0 {
-			c.QuicConfig.MaxStreamsPerConnection = 1
+			c.QuicConfig.MaxStreamsPerConnection = 100
 		}
 		if c.QuicConfig.IdleCleanupTimeout == 0 {
 			c.QuicConfig.IdleCleanupTimeout = DurationString(5 * time.Minute)

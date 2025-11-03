@@ -81,25 +81,26 @@ func (s *SalmonBridge) StatusCheck() {
 	_, _ = stream.Read(buf)
 }
 
-func (s *SalmonBridge) tryConnect() (net.Conn, net.Conn, *quic.Stream, error) {
+func (s *SalmonBridge) tryConnect() (net.Conn, net.Conn, *quic.Stream, func(), error) {
 	// Open the stream first
 	stream, cleanup, err := s.sq.OpenStream()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	// Only create the pipe after we successfully have a stream
 	// This prevents pipe leaks if stream creation fails
 	clientSide, internal := net.Pipe()
-	defer cleanup()
-	return clientSide, internal, stream, nil
-} // NewNearConn returns a net.Conn to the caller. Internally, it opens a new QUIC
+	return clientSide, internal, stream, cleanup, nil
+}
+
+// NewNearConn returns a net.Conn to the caller. Internally, it opens a new QUIC
 
 // stream, sends a small header identifying the remote target (host:port),
 // and then pipes bytes bidirectionally.
 func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 
-	clientSide, internal, stream, err := s.tryConnect()
+	clientSide, internal, stream, cleanup, err := s.tryConnect()
 
 	if err != nil {
 		return nil, err
@@ -107,6 +108,7 @@ func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 
 	go func() {
 		// Ensure we close the internal end if anything fails here.
+		defer cleanup()
 		defer internal.Close()
 		defer stream.Close()
 

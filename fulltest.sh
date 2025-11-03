@@ -56,7 +56,7 @@ SalmonBridges:
     SBNearPort: ${FAR_PORT}
     SBSocksListenPort: 0
     SBSocksListenAddress: "127.0.0.1"
-    SBIdleTimeout: 10s
+    SBIdleTimeout: 60s
     SBInitialPacketSize: 1400
     SBMaxRecieveBufferSize: 2GB
     SBInterfaceName: "lo"
@@ -77,7 +77,7 @@ SalmonBridges:
     SBConnect: true
     SBFarPort: ${FAR_PORT}
     SBFarIp: "127.0.0.1"
-    SBIdleTimeout: 10s
+    SBIdleTimeout: 60s
     SBInitialPacketSize: 1400
     SBMaxRecieveBufferSize: 2GB
     SBInterfaceName: "lo"
