@@ -19,6 +19,12 @@ type GlobalLogConfig struct {
 	Compress   bool   `yaml:"Compress,omitempty"`
 }
 
+type QuicConfig struct {
+	MaxConnectionsPerBridge int            `yaml:"MaxConnectionsPerBridge,omitempty"`
+	MaxStreamsPerConnection int            `yaml:"MaxStreamsPerConnection,omitempty"`
+	IdleCleanupTimeout      DurationString `yaml:"IdleCleanupTimeout,omitempty"` // seconds
+}
+
 type ApiConfig struct {
 	Hostname string `yaml:"Hostname,omitempty"`
 	Port     int    `yaml:"Port,omitempty"`
@@ -146,6 +152,7 @@ type SalmonCannonConfig struct {
 	GlobalLog           *GlobalLogConfig     `yaml:"GlobalLog,omitempty"`
 	ApiConfig           *ApiConfig           `yaml:"ApiConfig,omitempty"`
 	SocksRedirectConfig *SocksRedirectConfig `yaml:"SocksRedirect,omitempty"`
+	QuicConfig          *QuicConfig          `yaml:"QuicConfig,omitempty"`
 }
 
 // SetDefaults sets default values for optional fields
@@ -194,6 +201,23 @@ func (c *SalmonCannonConfig) SetDefaults() {
 		}
 		if b.RouteMap == nil {
 			c.Bounces[i].RouteMap = make(map[string]string)
+		}
+	}
+	if c.QuicConfig == nil {
+		c.QuicConfig = &QuicConfig{
+			MaxConnectionsPerBridge: 500,
+			MaxStreamsPerConnection: 1,
+			IdleCleanupTimeout:      DurationString(5 * time.Minute),
+		}
+	} else {
+		if c.QuicConfig.MaxConnectionsPerBridge == 0 {
+			c.QuicConfig.MaxConnectionsPerBridge = 500
+		}
+		if c.QuicConfig.MaxStreamsPerConnection == 0 {
+			c.QuicConfig.MaxStreamsPerConnection = 1
+		}
+		if c.QuicConfig.IdleCleanupTimeout == 0 {
+			c.QuicConfig.IdleCleanupTimeout = DurationString(5 * time.Minute)
 		}
 	}
 	// Set global log defaults if not provided

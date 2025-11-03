@@ -8,38 +8,51 @@ import (
 	"net"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/quic-go/quic-go"
 )
 
+type quicConnection struct {
+	conn          *quic.Conn
+	pconn         net.PacketConn
+	activeStreams int32 // atomic counter
+	createdAt     time.Time
+	lastUsed      time.Time
+	mu            sync.Mutex
+}
+
 type SalmonQuic struct {
 	BridgePort    int
 	BridgeAddress string
 	BridgeName    string
 
-	mu    sync.Mutex
-	qconn *quic.Conn // single long-lived QUIC connection
-	pconn net.PacketConn
-
-	bridgeDown    bool
+	connections   []*quicConnection
+	connectionsMu sync.RWMutex
 	qcfg          *quic.Config
 	tlscfg        *tls.Config
 	interfaceName string
+	cleanupOnce   sync.Once
 }
 
 func NewSalmonQuic(port int, address string, name string, tlscfg *tls.Config,
 	qcfg *quic.Config, interfaceName string) *SalmonQuic {
-	return &SalmonQuic{
+	sq := &SalmonQuic{
 		BridgeName:    name,
 		BridgeAddress: address,
 		BridgePort:    port,
 		tlscfg:        tlscfg,
 		qcfg:          qcfg,
-		bridgeDown:    true,
 		interfaceName: interfaceName,
+		connections:   make([]*quicConnection, 0, MaxConnectionsPerBridge),
 	}
+	// Start cleanup goroutine
+	sq.cleanupOnce.Do(func() {
+		go sq.connectionCleanupLoop()
+	})
+	return sq
 }
 
 func listenPacketOnInterface(network, ifname string) (net.PacketConn, error) {
@@ -89,133 +102,174 @@ func listenPacketOnInterfaceForListen(network, ifname string, port int) (net.Pac
 	return nil, fmt.Errorf("no usable address found on interface %s", ifname)
 }
 
-func (s *SalmonQuic) ensureQUIC(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.qconn != nil && s.bridgeDown == false {
-		return nil
-	}
-
-	// close old quic connection and underlying packet conn (if any)
-	if s.qconn != nil {
-		_ = s.qconn.CloseWithError(0, "reconnecting")
-		s.qconn = nil
-	}
-	if s.pconn != nil {
-		_ = s.pconn.Close()
-		s.pconn = nil
-	}
-
+// createNewConnection creates a new QUIC connection
+func (s *SalmonQuic) createNewConnection(ctx context.Context) (*quicConnection, error) {
 	addr := fmt.Sprintf("%s:%d", s.BridgeAddress, s.BridgePort)
 
 	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
+	var qc *quic.Conn
+	var pc net.PacketConn
+	var err error
+
 	// If an interface name is provided, create a PacketConn bound to that interface
 	// Only supported on Linux via SO_BINDTODEVICE
 	if s.interfaceName != "" {
-		pc, err := listenPacketOnInterface("udp", s.interfaceName)
+		pc, err = listenPacketOnInterface("udp", s.interfaceName)
 		if err != nil {
-			return fmt.Errorf("bind to interface %q: %w", s.interfaceName, err)
+			return nil, fmt.Errorf("bind to interface %q: %w", s.interfaceName, err)
 		}
 
 		udpAddr, err := net.ResolveUDPAddr("udp", addr)
 		if err != nil {
 			_ = pc.Close()
-			return fmt.Errorf("resolve UDP addr %s: %w", addr, err)
+			return nil, fmt.Errorf("resolve UDP addr %s: %w", addr, err)
 		}
-		qc, err := quic.Dial(dialCtx, pc, udpAddr, s.tlscfg, s.qcfg)
+		qc, err = quic.Dial(dialCtx, pc, udpAddr, s.tlscfg, s.qcfg)
 		if err != nil {
 			_ = pc.Close()
-			return fmt.Errorf("dial QUIC %s via interface %s: %w", addr, s.interfaceName, err)
+			return nil, fmt.Errorf("dial QUIC %s via interface %s: %w", addr, s.interfaceName, err)
 		}
 
-		s.bridgeDown = false
-		s.pconn = pc
-		s.qconn = qc
-
-		log.Printf("NEAR: New bridge for %s connected to far host %s %d via interface %s", s.BridgeName, s.BridgeAddress, s.BridgePort, s.interfaceName)
-		return nil
+		log.Printf("NEAR: New QUIC bridge for %s connected to far host %s:%d via interface %s", s.BridgeName, s.BridgeAddress, s.BridgePort, s.interfaceName)
 	} else {
 		// Default: dial without binding to a specific interface
-		qc, err := quic.DialAddr(dialCtx, addr, s.tlscfg, s.qcfg)
+		qc, err = quic.DialAddr(dialCtx, addr, s.tlscfg, s.qcfg)
 		if err != nil {
-			return fmt.Errorf("dial QUIC %s: %w", addr, err)
+			return nil, fmt.Errorf("dial QUIC %s: %w", addr, err)
 		}
-		s.bridgeDown = false
-		s.qconn = qc
 
-		log.Printf("NEAR: New bridge for %s connected to far host %s %d", s.BridgeName, s.BridgeAddress, s.BridgePort)
-		return nil
+		log.Printf("NEAR: New QUIC bridge for %s connected to far host %s:%d", s.BridgeName, s.BridgeAddress, s.BridgePort)
 	}
+
+	qconnection := &quicConnection{
+		conn:          qc,
+		pconn:         pc,
+		activeStreams: 0,
+		createdAt:     time.Now(),
+		lastUsed:      time.Now(),
+	}
+
+	return qconnection, nil
 }
 
-func (s *SalmonQuic) reconnectBridge() error {
-	if err := s.ensureQUIC(context.Background()); err != nil {
-		log.Printf("NEAR: Bridge %s creation failed: %v", s.BridgeName, err)
-		return err
-	}
-	return nil
-}
+// selectConnection finds a suitable connection or creates a new one
+func (s *SalmonQuic) selectConnection() (*quicConnection, error) {
+	s.connectionsMu.Lock()
+	defer s.connectionsMu.Unlock()
 
-// OpenStream opens a QUIC stream, handling reconnection if needed
-func (s *SalmonQuic) OpenStream() (*quic.Stream, error) {
-
-	if err := s.reconnectBridge(); err != nil {
-		return nil, err
-	}
-
-	// Check if connection is valid before proceeding
-	s.mu.Lock()
-	qconn := s.qconn
-	s.mu.Unlock()
-
-	if qconn == nil {
-		return nil, fmt.Errorf("QUIC connection is nil")
-	}
-
-	// Log current connection stats for debugging
-	// Uncomment if needed: log.Printf("NEAR: Bridge %s attempting to open stream", s.BridgeName)
-
-	maxAttempts := 2
-	var err error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		// Add a timeout context to prevent indefinite blocking
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		stream, streamErr := qconn.OpenStreamSync(ctx)
-		cancel()
-		if streamErr != nil {
-			err = streamErr
-			log.Printf("NEAR: OpenStreamSync failed (attempt %d/%d): %v", attempt, maxAttempts, err)
-			s.mu.Lock()
-			s.bridgeDown = true
-			s.mu.Unlock()
-			if attempt < maxAttempts {
-				log.Printf("NEAR: Bridge %s attempting reconnect to far", s.BridgeName)
-
-				if reconErr := s.reconnectBridge(); reconErr != nil {
-					log.Printf("NEAR: Bridge %s reconnect failed: %v", s.BridgeName, reconErr)
-					return nil, fmt.Errorf("reconnect failed: %w", reconErr)
-				}
-				// Update local reference after successful reconnect
-				s.mu.Lock()
-				qconn = s.qconn
-				s.mu.Unlock()
-				if qconn == nil {
-					return nil, fmt.Errorf("QUIC connection is nil after reconnect")
-				}
-
-				continue
-			} else {
-				log.Printf("NEAR: Bridge %s failed to open stream after %d attempts", s.BridgeName, maxAttempts)
-				return nil, fmt.Errorf("failed to open stream after %d attempts: %w", maxAttempts, err)
+	// Find the oldest connection with available capacity
+	var selected *quicConnection
+	for _, conn := range s.connections {
+		if atomic.LoadInt32(&conn.activeStreams) < MaxStreamsPerConnection {
+			if selected == nil || conn.createdAt.Before(selected.createdAt) {
+				selected = conn
 			}
 		}
-		// Success
-		return stream, nil
 	}
-	return nil, err
+
+	// If found a suitable connection, use it
+	if selected != nil {
+		return selected, nil
+	}
+
+	// Need to create a new connection
+	if len(s.connections) >= MaxConnectionsPerBridge {
+		return nil, fmt.Errorf("maximum number of connections (%d) reached", MaxConnectionsPerBridge)
+	}
+
+	newConnection, err := s.createNewConnection(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create new connection: %w", err)
+	}
+
+	s.connections = append(s.connections, newConnection)
+	log.Printf("NEAR: Created new connection (total: %d/%d) for %s", len(s.connections), MaxConnectionsPerBridge, s.BridgeName)
+
+	return newConnection, nil
+}
+
+// closeConnection safely closes a connection
+func (s *SalmonQuic) closeConnection(qconn *quicConnection) {
+	qconn.mu.Lock()
+	defer qconn.mu.Unlock()
+
+	if qconn.conn != nil {
+		_ = qconn.conn.CloseWithError(0, "idle timeout")
+		qconn.conn = nil
+	}
+	if qconn.pconn != nil {
+		_ = qconn.pconn.Close()
+		qconn.pconn = nil
+	}
+}
+
+// connectionCleanupLoop periodically removes idle connections
+func (s *SalmonQuic) connectionCleanupLoop() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		s.connectionsMu.Lock()
+
+		// Check each connection for idle timeout
+		activeConnections := make([]*quicConnection, 0, len(s.connections))
+		for _, conn := range s.connections {
+			activeCount := atomic.LoadInt32(&conn.activeStreams)
+
+			// Keep connection if it has active streams or was recently used
+			if activeCount > 0 || time.Since(conn.lastUsed) < ConnectionIdleTimeout {
+				activeConnections = append(activeConnections, conn)
+			} else {
+				log.Printf("NEAR: Closing idle connection for %s (last used: %v ago)", s.BridgeName, time.Since(conn.lastUsed))
+				s.closeConnection(conn)
+			}
+		}
+
+		s.connections = activeConnections
+		s.connectionsMu.Unlock()
+	}
+}
+
+// OpenStream opens a QUIC stream using the bridge pool
+// Returns the stream and a cleanup function that MUST be called when done
+func (s *SalmonQuic) OpenStream() (*quic.Stream, func(), error) {
+	// Select or create a connection
+	qconn, err := s.selectConnection()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to select connection: %w", err)
+	}
+
+	// Increment active stream counter
+	atomic.AddInt32(&qconn.activeStreams, 1)
+
+	// Update last used timestamp
+	qconn.mu.Lock()
+	qconn.lastUsed = time.Now()
+	qconn.mu.Unlock()
+
+	if qconn == nil {
+		atomic.AddInt32(&qconn.activeStreams, -1)
+		return nil, nil, fmt.Errorf("connection is nil")
+	}
+
+	// Open stream with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	stream, err := qconn.conn.OpenStreamSync(ctx)
+	if err != nil {
+		atomic.AddInt32(&qconn.activeStreams, -1)
+		return nil, nil, fmt.Errorf("failed to open stream: %w", err)
+	}
+
+	// Cleanup function to decrement counter
+	cleanup := func() {
+		atomic.AddInt32(&qconn.activeStreams, -1)
+	}
+
+	return stream, cleanup, nil
 }
 
 func shouldBlockHost(expectedRemote string, newRemote string) bool {

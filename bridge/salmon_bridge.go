@@ -41,12 +41,13 @@ func NewSalmonBridge(name string, address string, port int, tlscfg *tls.Config,
 // =========================================================
 
 func (s *SalmonBridge) StatusCheck() {
-	stream, err := s.sq.OpenStream()
+	stream, cleanup, err := s.sq.OpenStream()
 	if err != nil {
 		log.Printf("NEAR: Bridge %s status check connect error: %v", s.BridgeName, err)
 		return
 	}
 	defer stream.Close()
+	defer cleanup()
 
 	startTime := time.Now()
 	written, err := stream.Write([]byte{STATUS_HEADER})
@@ -82,7 +83,7 @@ func (s *SalmonBridge) StatusCheck() {
 
 func (s *SalmonBridge) tryConnect() (net.Conn, net.Conn, *quic.Stream, error) {
 	// Open the stream first
-	stream, err := s.sq.OpenStream()
+	stream, cleanup, err := s.sq.OpenStream()
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -90,9 +91,10 @@ func (s *SalmonBridge) tryConnect() (net.Conn, net.Conn, *quic.Stream, error) {
 	// Only create the pipe after we successfully have a stream
 	// This prevents pipe leaks if stream creation fails
 	clientSide, internal := net.Pipe()
-
+	defer cleanup()
 	return clientSide, internal, stream, nil
 } // NewNearConn returns a net.Conn to the caller. Internally, it opens a new QUIC
+
 // stream, sends a small header identifying the remote target (host:port),
 // and then pipes bytes bidirectionally.
 func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
