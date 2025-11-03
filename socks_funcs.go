@@ -9,9 +9,11 @@ import (
 
 // Helper function to read exact number of bytes
 func readExact(conn net.Conn, buf []byte, n int) (int, error) {
-	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		return 0, err
+	if conn == nil {
+		return 0, fmt.Errorf("nil connection")
 	}
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	defer conn.SetReadDeadline(time.Time{}) // Clear deadline after read
 
 	total := 0
 	for total < n {
