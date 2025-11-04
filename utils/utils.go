@@ -2,8 +2,10 @@ package utils
 
 import (
 	"bytes"
+	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha512"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -57,4 +59,13 @@ func pemEncode(typ string, data []byte) []byte {
 	var buf bytes.Buffer
 	pem.Encode(&buf, &pem.Block{Type: typ, Bytes: data})
 	return buf.Bytes()
+}
+
+func DeriveAesKeyFromPassphrase(bridgeName string, passphrase string) ([]byte, error) {
+	salt := []byte(bridgeName) // Use the provided salt
+	dk, err := pbkdf2.Key(sha512.New, passphrase, salt, 4096, 32)
+	if err != nil {
+		return nil, err
+	}
+	return dk, nil
 }

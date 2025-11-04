@@ -147,6 +147,7 @@ type SalmonBridgeConfig struct {
 	InterfaceName        string         `yaml:"SBInterfaceName,omitempty"`        // default ""
 	AllowedInAddresses   []string       `yaml:"SBAllowedInAddresses,omitempty"`   // default []
 	AllowedOutAddresses  []string       `yaml:"SBAllowedOutAddresses,omitempty"`  // default []
+	SharedSecret         string         `yaml:"SBSharedSecret,omitempty"`         // optional AES key for encrypting traffic
 }
 
 // SalmonBounceConfig holds config for UDP relay instances

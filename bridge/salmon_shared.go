@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"salmoncannon/crypt"
 	"salmoncannon/limiter"
 	"sync"
-	"time"
 
 	quic "github.com/quic-go/quic-go"
 )
@@ -64,32 +64,50 @@ func ReadTargetHeader(r io.Reader) (string, error) {
 // - When client->stream copy finishes, we FIN the stream write side (stream.Close()).
 // - When stream->client copy finishes, we close the TCP socket.
 // - On errors, we best-effort cancel the other direction to unblock.
-func BidiPipe(stream *quic.Stream, tcp net.Conn, limiter *limiter.SharedLimiter) {
+func BidiPipe(stream *quic.Stream, tcp net.Conn,
+	limiter *limiter.SharedLimiter, aesKey []byte) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
 	// Copy tcp -> stream
 	go func() {
 		defer wg.Done()
-		src := io.Reader(tcp)
+		// If cryption is enabled, wrap the TCP connection
+		if aesKey != nil {
+			tcp = crypt.AesWrapConn(tcp, aesKey)
+		}
+
+		var src io.Reader
 		if limiter != nil {
 			src = limiter.WrapConn(tcp)
+		} else {
+			src = io.Reader(tcp)
 		}
+
 		if _, err := io.Copy(stream, src); err != nil {
 			stream.CancelWrite(0)
 		}
 		stream.Close()
 		// Force the other direction to stop by setting deadline
-		tcp.SetReadDeadline(time.Now())
+		// tcp.SetReadDeadline(time.Now())
 	}()
 
 	// Copy stream -> tcp
 	go func() {
 		defer wg.Done()
-		dst := io.Writer(tcp)
+
+		// If cryption is enabled, wrap the TCP connection
+		if aesKey != nil {
+			tcp = crypt.AesWrapConn(tcp, aesKey)
+		}
+
+		var dst io.Writer
 		if limiter != nil {
 			dst = limiter.WrapConn(tcp)
+		} else {
+			dst = io.Writer(tcp)
 		}
+
 		if _, err := io.Copy(dst, stream); err != nil {
 			stream.CancelRead(0)
 		}

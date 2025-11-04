@@ -21,11 +21,13 @@ type SalmonBridge struct {
 	sl                  *limiter.SharedLimiter
 	connector           bool
 	allowedOutAddresses []string
+
+	aesKey []byte
 }
 
 func NewSalmonBridge(name string, address string, port int, tlscfg *tls.Config,
 	qcfg *quic.Config, sl *limiter.SharedLimiter, connector bool, interfaceName string,
-	allowedOutAddresses []string) *SalmonBridge {
+	allowedOutAddresses []string, aesKey []byte) *SalmonBridge {
 	sq := connections.NewSalmonQuic(port, address, name, tlscfg, qcfg, interfaceName)
 	return &SalmonBridge{
 		BridgeName:          name,
@@ -33,6 +35,7 @@ func NewSalmonBridge(name string, address string, port int, tlscfg *tls.Config,
 		sq:                  sq,
 		connector:           connector,
 		allowedOutAddresses: allowedOutAddresses,
+		aesKey:              aesKey,
 	}
 }
 
@@ -122,7 +125,7 @@ func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 		}
 
 		// 2) Pump data both ways.
-		BidiPipe(stream, internal, s.sl)
+		BidiPipe(stream, internal, s.sl, s.aesKey)
 	}()
 
 	return clientSide, nil
@@ -214,7 +217,7 @@ func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 	status.GlobalConnMonitorRef.IncOUT()
 
 	// 4) Pipe bytes both directions.
-	BidiPipe(stream, dst, s.sl)
+	BidiPipe(stream, dst, s.sl, s.aesKey)
 }
 
 func (s *SalmonBridge) NewFarListen() error {

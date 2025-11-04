@@ -60,6 +60,7 @@ SalmonBridges:
     SBInitialPacketSize: 1400
     SBMaxRecieveBufferSize: 2GB
     SBInterfaceName: "lo"
+    SBSharedSecret: "my_shared_secret"
 GlobalLog:
   Filename: "sc.log"
   MaxSize: 5
@@ -81,6 +82,7 @@ SalmonBridges:
     SBInitialPacketSize: 1400
     SBMaxRecieveBufferSize: 2GB
     SBInterfaceName: "lo"
+    SBSharedSecret: "my_shared_secret"
 GlobalLog:
   Filename: "sc.log"
   MaxSize: 5

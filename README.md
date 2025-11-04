@@ -130,6 +130,7 @@ SalmonBridges:
 - `SBInterfaceName`: Network interface you wish to attach through. (Optional)
 - `SBAllowedInAddresses`: Near node only. List of hostname/IPs allowed to connect to the near. (Allows all if not set)
 - `SBAllowedOutAddresses`: Far node only. List of hostname/IPs connections can be proxies to. (Allows all if not set)
+- `SBSharedSecret`: Allows bridges to be encrypted with a pre shared secret. Will reduce performance. Entirely optional, QUIC already enforces TLS.
 
 ### Logging Configuration (`GlobalLog`)
 Logging is configured via the `GlobalLog` section in your config:
@@ -150,7 +151,7 @@ GlobalLog:
 - `Compress`: Whether to compress rotated log files (bool)
 
 ### SOCKS Redirect Configuration (`SocksRedirect`)
-The `SocksRedirect` section in your config allows you to use a single 'generic' SOCKS listener to route to specific bridges bases on the desired endpoint. The requested IP/Hostname will use the first key that is a partial match, so be careful!
+The `SocksRedirect` section in your config allows you to use a single 'generic' SOCKS listener to route to specific bridges based on the desired endpoint. The requested IP/Hostname will use the first key that is a partial match, so be careful!
 
 ```yaml
 SocksRedirect:
@@ -179,25 +180,35 @@ ApiConfig:
 - `/api/v1/status` - JSON List of bridge status including bandwidth usage, alive status, and ping metrics. Alive and ping metrics requires SBStatusCheckFrequency to be set on the NEAR bridge.
 
 ### QUIC Configuration (`QuicConfig`)
-The `QuicConfig` section controls QUIC connection pooling behavior, which is critical for handling high numbers of concurrent streams. Due to QUIC flow control limitations, a single QUIC connection has a practical limit of concurrent streams. SalmonCannon implements connection pooling to overcome this limitation.
+The `QuicConfig` section controls QUIC connection pooling behavior. This allows for performance tuning if the bottleneck becomes the QUIC connection.
 
 ```yaml
 QuicConfig:
-  MaxConnectionsPerBridge: 500
-  MaxStreamsPerConnection: 1
+  MaxConnectionsPerBridge: 1
+  MaxStreamsPerConnection: 500
   IdleCleanupTimeout: 5m
 ```
 
-- `MaxConnectionsPerBridge`: Maximum number of QUIC connections in the pool per bridge (int, default: 500). When this limit is reached, new streams will wait for existing streams to complete.
-- `MaxStreamsPerConnection`: Maximum concurrent streams per QUIC connection (int, default: 1). Setting this to 1 ensures optimal performance by creating a new connection for each stream. Higher values may work but can hit QUIC flow control limits (~100-500 streams).
-- `IdleCleanupTimeout`: Duration after which idle QUIC connections are removed from the pool (duration e.g. 5m or 10m, default: 5m). Connections with no active streams for this duration will be closed to conserve resources.
+- `MaxConnectionsPerBridge`: Maximum number of QUIC connections in the pool per bridge (int, default: 1).
+- `MaxStreamsPerConnection`: Maximum concurrent streams per QUIC connection (int, default: 500).
+- `IdleCleanupTimeout`: Duration after which idle QUIC connections are removed from the pool (duration e.g. 5m or 10m, default: 5m).
 
 **Connection Pooling Behavior:**
-- When a new TCP stream needs to be proxied, the bridge selects the oldest connection with available capacity
-- If no suitable connection exists, a new QUIC connection is created (up to `MaxConnectionsPerBridge`)
-- The bridge tracks active streams per connection using atomic counters for thread safety
-- Idle connections are automatically cleaned up after `IdleCleanupTimeout`
-- When a stream completes, its cleanup function decrements the connection's stream counter
+- When a new TCP stream needs to be proxied, the bridge will create a new connection until the `MaxConnectionsPerBridge` is reached.
+- It will then use the bridge with the fewest streams
+- Old connections will be cleaned up when not in use
+
+## Crypto Info
+### TLS
+TLS is built into the QUIC protocol. Currently - a 2048bit RSA key is generated for each Far bridge on startup.
+
+### Bridge Config - (`SBSharedSecret`)
+The bridges can be configured with a pre shared secret. It is currently implemented as AES256-CTR. The encryption key is derived using a combination of the `SBSharedSecret` and the `BridgeName`.
+
+This will:
+- Encrypt the traffic passing over the bridge (on-top of the encryption TLS already provides)
+- Reduce performance (approx 20%)
+
 
 ## Ratetest App
 
