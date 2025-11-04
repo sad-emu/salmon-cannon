@@ -7,6 +7,7 @@ import (
 	"salmoncannon/bridge"
 	"salmoncannon/config"
 	"salmoncannon/limiter"
+	"salmoncannon/socks"
 	"salmoncannon/status"
 	"salmoncannon/utils"
 
@@ -34,8 +35,8 @@ func NewSalmonFar(config *config.SalmonBridgeConfig) (*SalmonFar, error) {
 		InitialConnectionReceiveWindow: uint64(1024 * 1024 * 25),
 		MaxConnectionReceiveWindow:     uint64(config.MaxRecieveBufferSize),
 		InitialPacketSize:              uint16(config.InitialPacketSize),
-		MaxIncomingStreams:             maxConnections,
-		MaxIncomingUniStreams:          maxConnections,
+		MaxIncomingStreams:             socks.MaxConnections,
+		MaxIncomingUniStreams:          socks.MaxConnections,
 		EnableDatagrams:                false,
 	}
 

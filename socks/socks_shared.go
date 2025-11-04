@@ -1,4 +1,4 @@
-package main
+package socks
 
 const (
 	socksVersion5     = 0x05
@@ -20,7 +20,7 @@ const (
 	ipv6Len               = 16
 	portLen               = 2
 
-	maxConnections = 2000
+	MaxConnections = 2000
 )
 
 var (
@@ -29,6 +29,6 @@ var (
 	handshakeNoAcceptable = []byte{socksVersion5, 0xff}
 	authReplySuccess      = []byte{0x01, 0x00}
 	authReplyFail         = []byte{0x01, 0x01}
-	replySuccess          = []byte{socksVersion5, socksReplySucceeded, socksReserved, socksAddrTypeIPv4, 0, 0, 0, 0, 0, 0}
-	replyFail             = []byte{socksVersion5, socksReplyGeneralFail, socksReserved, socksAddrTypeIPv4, 0, 0, 0, 0, 0, 0}
+	ReplySuccess          = []byte{socksVersion5, socksReplySucceeded, socksReserved, socksAddrTypeIPv4, 0, 0, 0, 0, 0, 0}
+	ReplyFail             = []byte{socksVersion5, socksReplyGeneralFail, socksReserved, socksAddrTypeIPv4, 0, 0, 0, 0, 0, 0}
 )

@@ -8,6 +8,7 @@ import (
 	"salmoncannon/bridge"
 	"salmoncannon/config"
 	"salmoncannon/limiter"
+	"salmoncannon/socks"
 	"salmoncannon/status"
 	"strconv"
 	"sync"
@@ -125,8 +126,8 @@ func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
 		InitialConnectionReceiveWindow: uint64(1024 * 1024 * 25),
 		MaxConnectionReceiveWindow:     uint64(config.MaxRecieveBufferSize),
 		InitialPacketSize:              uint16(config.InitialPacketSize),
-		MaxIncomingStreams:             maxConnections,
-		MaxIncomingUniStreams:          maxConnections,
+		MaxIncomingStreams:             socks.MaxConnections,
+		MaxIncomingUniStreams:          socks.MaxConnections,
 		EnableDatagrams:                false,
 	}
 
@@ -175,7 +176,7 @@ func (n *SalmonNear) HandleRequest(conn net.Conn) {
 		return
 	}
 
-	host, port, err := HandleSocksHandshake(conn, n.bridgeName)
+	host, port, err := socks.HandleSocksHandshake(conn, n.bridgeName)
 	if err != nil {
 		// Only log non-EOF errors - EOF just means client disconnected (common with health checks)
 		if err != io.EOF {
@@ -187,7 +188,7 @@ func (n *SalmonNear) HandleRequest(conn net.Conn) {
 	// 4. Open a streaming session to far
 	stream, err := n.currentBridge.NewNearConn(host, port)
 	if err != nil {
-		conn.Write(replyFail)
+		conn.Write(socks.ReplyFail)
 		log.Printf("NEAR: Bridge %s Failed to open stream to far: %v", n.bridgeName, err)
 		return
 	}
@@ -197,7 +198,7 @@ func (n *SalmonNear) HandleRequest(conn net.Conn) {
 	}()
 
 	// 5. Reply: success
-	conn.Write(replySuccess)
+	conn.Write(socks.ReplySuccess)
 
 	relayConnData(conn, stream)
 }

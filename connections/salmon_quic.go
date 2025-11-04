@@ -159,35 +159,34 @@ func (s *SalmonQuic) selectConnection() (*quicConnection, error) {
 	s.connectionsMu.Lock()
 	defer s.connectionsMu.Unlock()
 
-	// Find the oldest connection with available capacity
-	var selected *quicConnection
-	for _, conn := range s.connections {
-		if atomic.LoadInt32(&conn.activeStreams) < MaxStreamsPerConnection {
-			if selected == nil || conn.createdAt.Before(selected.createdAt) {
+	// Can we to create a new connection
+	if len(s.connections) < MaxConnectionsPerBridge {
+		newConnection, err := s.createNewConnection(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("failed to create new connection: %w", err)
+		}
+
+		s.connections = append(s.connections, newConnection)
+		log.Printf("NEAR: Created new connection (total: %d/%d) for %s", len(s.connections), MaxConnectionsPerBridge, s.BridgeName)
+		return newConnection, nil
+	} else {
+		// Find the connection with the least number of active streams
+		var selected *quicConnection
+		var minStreams int32 = MaxStreamsPerConnection
+		for _, conn := range s.connections {
+			activeStreams := atomic.LoadInt32(&conn.activeStreams)
+			if activeStreams < MaxStreamsPerConnection && activeStreams < minStreams {
 				selected = conn
+				minStreams = activeStreams
 			}
 		}
+
+		// If found a suitable connection, use it
+		if selected != nil {
+			return selected, nil
+		}
+		return nil, fmt.Errorf("all connections are at maximum stream capacity")
 	}
-
-	// If found a suitable connection, use it
-	if selected != nil {
-		return selected, nil
-	}
-
-	// Need to create a new connection
-	if len(s.connections) >= MaxConnectionsPerBridge {
-		return nil, fmt.Errorf("maximum number of connections (%d) reached", MaxConnectionsPerBridge)
-	}
-
-	newConnection, err := s.createNewConnection(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("failed to create new connection: %w", err)
-	}
-
-	s.connections = append(s.connections, newConnection)
-	log.Printf("NEAR: Created new connection (total: %d/%d) for %s", len(s.connections), MaxConnectionsPerBridge, s.BridgeName)
-
-	return newConnection, nil
 }
 
 // closeConnection safely closes a connection
@@ -255,7 +254,7 @@ func (s *SalmonQuic) OpenStream() (*quic.Stream, func(), error) {
 	}
 
 	// Open stream with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	stream, err := qconn.conn.OpenStreamSync(ctx)

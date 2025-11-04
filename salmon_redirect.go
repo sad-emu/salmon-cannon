@@ -4,6 +4,7 @@ import (
 	"log"
 	"net"
 	"salmoncannon/config"
+	"salmoncannon/socks"
 	"strconv"
 	"strings"
 )
@@ -13,7 +14,7 @@ func handleSocksRedirect(conn net.Conn, socksConfig *config.SocksRedirectConfig,
 	dummyBridgeName := "SocksRedirectBridge"
 	//log.Printf("NEAR: Bridge %s accepted connection from %s", dummyBridgeName, conn.RemoteAddr())
 
-	host, port, err := HandleSocksHandshake(conn, dummyBridgeName)
+	host, port, err := socks.HandleSocksHandshake(conn, dummyBridgeName)
 	if err != nil {
 		log.Printf("NEAR: Bridge %s Failed to handle SOCKS handshake: %v", dummyBridgeName, err)
 		return
@@ -30,7 +31,7 @@ func handleSocksRedirect(conn net.Conn, socksConfig *config.SocksRedirectConfig,
 
 	if bridgeName == "" || (*bridgeRegistry)[bridgeName] == nil {
 		log.Printf("SOCKS Redirector: No redirect found for destination %s", host)
-		conn.Write(replyFail)
+		conn.Write(socks.ReplyFail)
 		return
 	}
 	log.Printf("SOCKS Redirector: Redirecting %s:%d to bridge %s", host, port, bridgeName)
@@ -45,7 +46,7 @@ func handleSocksRedirect(conn net.Conn, socksConfig *config.SocksRedirectConfig,
 	stream, err := (*bridgeRegistry)[bridgeName].currentBridge.NewNearConn(host, port)
 
 	if err != nil {
-		conn.Write(replyFail)
+		conn.Write(socks.ReplyFail)
 		log.Printf("NEAR: Bridge %s Failed to open stream to far: %v", dummyBridgeName, err)
 		return
 	}
@@ -57,7 +58,7 @@ func handleSocksRedirect(conn net.Conn, socksConfig *config.SocksRedirectConfig,
 	}()
 
 	// 5. Reply: success
-	conn.Write(replySuccess)
+	conn.Write(socks.ReplySuccess)
 
 	relayConnData(conn, stream)
 }
