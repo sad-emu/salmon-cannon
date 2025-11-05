@@ -168,7 +168,7 @@ func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 	// 1) Read target header.
 	headerType, err := ReadHeaderType(stream)
 	if err != nil {
-		log.Printf("FAR: read header error: %v", err)
+		log.Printf("FAR: Bridge %s read header error: %v", s.BridgeName, err)
 		stream.CancelRead(0)
 		stream.Close()
 		return
@@ -185,7 +185,7 @@ func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 
 	target, err := ReadTargetHeader(stream, s.sharedSecret)
 	if err != nil {
-		log.Printf("FAR: read header error: %v", err)
+		log.Printf("FAR: Bridge %s read header error: %v", s.BridgeName, err)
 		stream.CancelRead(0)
 		stream.Close()
 		return
@@ -193,7 +193,7 @@ func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 
 	// 2) Check for allowed outbound IPs/Hostnames
 	if s.shouldBlockFarOutConn(target) {
-		log.Printf("FAR: target addr not found in allow list: %s", target)
+		log.Printf("FAR: Bridge %s target addr not found in allow list: %s", s.BridgeName, target)
 		stream.CancelRead(0)
 		stream.Close()
 		return
