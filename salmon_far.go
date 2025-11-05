@@ -43,19 +43,8 @@ func NewSalmonFar(config *config.SalmonBridgeConfig) (*SalmonFar, error) {
 	farListenAddr := fmt.Sprintf(":%d", config.NearPort)
 	log.Printf("FAR: Listen address for bridge %s is '%s' (len=%d)\n", config.Name, farListenAddr, len(farListenAddr))
 
-	var aesKey []byte = nil
-	var err error = nil
-	if config.SharedSecret != "" {
-		aesKey, err = utils.DeriveAesKeyFromPassphrase(config.Name, config.SharedSecret)
-		if err != nil {
-			log.Printf("NEAR: Bridge %s Failed to derive AES key: %v", config.Name, err)
-			return nil, err
-		}
-		log.Printf("NEAR: Bridge %s using encryption key", config.Name)
-	}
-
 	farBridge := bridge.NewSalmonBridge(config.Name, config.FarIp, config.NearPort,
-		tlscfg, qcfg, sl, config.Connect, config.InterfaceName, config.AllowedOutAddresses, aesKey)
+		tlscfg, qcfg, sl, config.Connect, config.InterfaceName, config.AllowedOutAddresses, config.SharedSecret)
 
 	far := &SalmonFar{
 		farBridge: farBridge,

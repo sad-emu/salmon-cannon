@@ -22,12 +22,12 @@ type SalmonBridge struct {
 	connector           bool
 	allowedOutAddresses []string
 
-	aesKey []byte
+	sharedSecret string
 }
 
 func NewSalmonBridge(name string, address string, port int, tlscfg *tls.Config,
 	qcfg *quic.Config, sl *limiter.SharedLimiter, connector bool, interfaceName string,
-	allowedOutAddresses []string, aesKey []byte) *SalmonBridge {
+	allowedOutAddresses []string, sharedSecret string) *SalmonBridge {
 	sq := connections.NewSalmonQuic(port, address, name, tlscfg, qcfg, interfaceName)
 	return &SalmonBridge{
 		BridgeName:          name,
@@ -35,7 +35,7 @@ func NewSalmonBridge(name string, address string, port int, tlscfg *tls.Config,
 		sq:                  sq,
 		connector:           connector,
 		allowedOutAddresses: allowedOutAddresses,
-		aesKey:              aesKey,
+		sharedSecret:        sharedSecret,
 	}
 }
 
@@ -117,7 +117,7 @@ func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 
 		// 1) Send a small header carrying target address.
 		target := fmt.Sprintf("%s:%d", host, port)
-		if err := WriteTargetHeader(stream, target); err != nil {
+		if err := WriteTargetHeader(stream, target, s.sharedSecret); err != nil {
 			log.Printf("NEAR: write header error: %v", err)
 			// If we fail before copying, cancel read to unblock far side quickly.
 			stream.CancelRead(0)
@@ -125,7 +125,7 @@ func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 		}
 
 		// 2) Pump data both ways.
-		BidiPipe(stream, internal, s.sl, s.aesKey)
+		BidiPipe(stream, internal, s.sl, s.sharedSecret)
 	}()
 
 	return clientSide, nil
@@ -164,6 +164,7 @@ func (s *SalmonBridge) handleStatusPing(stream *quic.Stream) {
 }
 
 func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
+
 	// 1) Read target header.
 	headerType, err := ReadHeaderType(stream)
 	if err != nil {
@@ -182,7 +183,7 @@ func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 		return
 	}
 
-	target, err := ReadTargetHeader(stream)
+	target, err := ReadTargetHeader(stream, s.sharedSecret)
 	if err != nil {
 		log.Printf("FAR: read header error: %v", err)
 		stream.CancelRead(0)
@@ -217,7 +218,7 @@ func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 	status.GlobalConnMonitorRef.IncOUT()
 
 	// 4) Pipe bytes both directions.
-	BidiPipe(stream, dst, s.sl, s.aesKey)
+	BidiPipe(stream, dst, s.sl, s.sharedSecret)
 }
 
 func (s *SalmonBridge) NewFarListen() error {

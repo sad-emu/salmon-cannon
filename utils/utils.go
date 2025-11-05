@@ -33,6 +33,8 @@ import (
 // 	return atomic.AddUint32(&globalConnID, 1)
 // }
 
+const pbkdf2Iterations = 250000
+
 func GenerateSelfSignedCert() tls.Certificate {
 	priv, _ := rsa.GenerateKey(rand.Reader, 2048)
 	template := x509.Certificate{
@@ -61,11 +63,11 @@ func pemEncode(typ string, data []byte) []byte {
 	return buf.Bytes()
 }
 
-func DeriveAesKeyFromPassphrase(bridgeName string, passphrase string) ([]byte, error) {
-	salt := []byte(bridgeName) // Use the provided salt
-	dk, err := pbkdf2.Key(sha512.New, passphrase, salt, 4096, 32)
+func DeriveEncKeyFromBytesAndSalt(sharedSecret string, salt []byte) ([]byte, error) {
+	dk, err := pbkdf2.Key(sha512.New, sharedSecret, salt, pbkdf2Iterations, 32)
 	if err != nil {
 		return nil, err
 	}
 	return dk, nil
+
 }

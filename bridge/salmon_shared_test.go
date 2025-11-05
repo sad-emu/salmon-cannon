@@ -12,7 +12,7 @@ import (
 func TestWriteTargetHeader_ValidInput(t *testing.T) {
 	buf := &bytes.Buffer{}
 	addr := "localhost:8080"
-	err := WriteTargetHeader(buf, addr)
+	err := WriteTargetHeader(buf, addr, "")
 	if err != nil {
 		t.Fatalf("expected nil err, got %v", err)
 	}
@@ -33,7 +33,7 @@ func TestWriteTargetHeader_ValidInput(t *testing.T) {
 func TestWriteTargetHeader_TooLongInput(t *testing.T) {
 	buf := &bytes.Buffer{}
 	addr := make([]byte, 70000) // > 65535
-	err := WriteTargetHeader(buf, string(addr))
+	err := WriteTargetHeader(buf, string(addr), "")
 	if err == nil || err.Error() != "target address too long" {
 		t.Fatalf("expected 'target address too long' error, got: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestWriteTargetHeader_TooLongInput(t *testing.T) {
 func TestReadTargetHeader_ValidInput(t *testing.T) {
 	addr := "localhost:9090"
 	buf := &bytes.Buffer{}
-	_ = WriteTargetHeader(buf, addr)
+	_ = WriteTargetHeader(buf, addr, "")
 
 	got1, err1 := ReadHeaderType(buf)
 	if err1 != nil {
@@ -56,7 +56,7 @@ func TestReadTargetHeader_ValidInput(t *testing.T) {
 		t.Errorf("expected header type %d, got %d", CONNECT_HEADER, got1)
 	}
 
-	got, err := ReadTargetHeader(buf)
+	got, err := ReadTargetHeader(buf, "")
 	if err != nil {
 		t.Fatalf("expected nil err, got %v", err)
 	}
@@ -69,7 +69,7 @@ func TestReadTargetHeader_EmptyInput(t *testing.T) {
 	// Write a buffer with length 0 in the header
 	buf := &bytes.Buffer{}
 	buf.Write([]byte{0, 0})
-	_, err := ReadTargetHeader(buf)
+	_, err := ReadTargetHeader(buf, "")
 	if err == nil || err.Error() != "empty target" {
 		t.Fatalf("expected 'empty target' error, got: %v", err)
 	}
@@ -79,8 +79,37 @@ func TestReadTargetHeader_EarlyEOF(t *testing.T) {
 	// Not enough bytes for length header
 	buf := &bytes.Buffer{}
 	buf.Write([]byte{0x00})
-	_, err := ReadTargetHeader(buf)
+	_, err := ReadTargetHeader(buf, "")
 	if err == nil {
 		t.Fatalf("expected error, got nil")
+	}
+}
+
+func TestWriteTargetHeader_ValidInputEncrypted(t *testing.T) {
+	buf := &bytes.Buffer{}
+	addr := "localhost:8080"
+	err := WriteTargetHeader(buf, addr, "sharedSecret")
+	if err != nil {
+		t.Fatalf("expected nil err, got %v", err)
+	}
+	// Should be 2 bytes length, then bytes of addr
+	data := buf.Bytes()
+	if len(data) < 3 {
+		t.Fatalf("buffer too short: %v", data)
+	}
+	l := int(data[1])<<8 | int(data[2])
+	if l != 62 {
+		t.Errorf("expected encrypted length %d, got %d", 62, l)
+	}
+	if !bytes.Contains(data[3:], []byte(addr)) {
+		t.Errorf("Buffer contains plaintext addr %q, got %q", addr, string(data[3:]))
+	}
+
+	decryptedAddr, err := ReadTargetHeader(bytes.NewReader(data[1:]), "sharedSecret")
+	if err != nil {
+		t.Fatalf("expected nil err, got %v", err)
+	}
+	if decryptedAddr != addr {
+		t.Errorf("expected decrypted addr %q, got %q", addr, decryptedAddr)
 	}
 }

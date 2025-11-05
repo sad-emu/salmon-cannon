@@ -10,7 +10,6 @@ import (
 	"salmoncannon/limiter"
 	"salmoncannon/socks"
 	"salmoncannon/status"
-	"salmoncannon/utils"
 	"strconv"
 	"sync"
 	"time"
@@ -140,19 +139,8 @@ func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
 		NextProtos:         []string{config.Name},
 	}
 
-	var aesKey []byte = nil
-	var err error = nil
-	if config.SharedSecret != "" {
-		aesKey, err = utils.DeriveAesKeyFromPassphrase(config.Name, config.SharedSecret)
-		if err != nil {
-			log.Printf("NEAR: Bridge %s Failed to derive AES key: %v", config.Name, err)
-			return nil, err
-		}
-		log.Printf("NEAR: Bridge %s using encryption key", config.Name)
-	}
-
 	salmonBridge := bridge.NewSalmonBridge(config.Name, bridgeAddress, bridgePort,
-		tlscfg, qcfg, sl, config.Connect, config.InterfaceName, config.AllowedOutAddresses, aesKey)
+		tlscfg, qcfg, sl, config.Connect, config.InterfaceName, config.AllowedOutAddresses, config.SharedSecret)
 
 	near := &SalmonNear{
 		currentBridge: salmonBridge,

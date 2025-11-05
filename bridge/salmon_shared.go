@@ -15,23 +15,34 @@ import (
 const STATUS_HEADER = 0x01
 const CONNECT_HEADER = 0x02
 const STATUS_ACK = 0x03
+const CONNECT_ENC_HEADER = 0x04
 
 // =========================================================
 // Helpers
 // =========================================================
 
 // Simple 2-byte length-prefixed ASCII header carrying "host:port".
-func WriteTargetHeader(w io.Writer, addr string) error {
+func WriteTargetHeader(w io.Writer, addr string, sharedSecret string) error {
 	if len(addr) > 65535 {
 		return fmt.Errorf("target address too long")
 	}
 	var hdr [3]byte
 	hdr[0] = CONNECT_HEADER
-	binary.BigEndian.PutUint16(hdr[1:], uint16(len(addr)))
+	addrToWrite := []byte(addr)
+	if sharedSecret != "" {
+		hdr[0] = CONNECT_ENC_HEADER
+		addrToWriteEnc, err := crypt.EncryptBytesWithSecret([]byte(addr), sharedSecret)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt target header: %v", err)
+		}
+		addrToWrite = addrToWriteEnc
+	}
+	// Don't bother encrypting the header length
+	binary.BigEndian.PutUint16(hdr[1:], uint16(len(addrToWrite)))
 	if _, err := w.Write(hdr[:]); err != nil {
 		return err
 	}
-	_, err := w.Write([]byte(addr))
+	_, err := w.Write(addrToWrite)
 	return err
 }
 
@@ -43,19 +54,28 @@ func ReadHeaderType(r io.Reader) (byte, error) {
 	return hdrType[0], nil
 }
 
-func ReadTargetHeader(r io.Reader) (string, error) {
+func ReadTargetHeader(r io.Reader, sharedSecret string) (string, error) {
 	var hdr [2]byte
 	if _, err := io.ReadFull(r, hdr[:]); err != nil {
 		return "", err
 	}
 	n := int(binary.BigEndian.Uint16(hdr[:]))
-	if n == 0 {
+	if n == 0 || n > 65535 {
 		return "", fmt.Errorf("empty target")
 	}
 	buf := make([]byte, n)
 	if _, err := io.ReadFull(r, buf); err != nil {
 		return "", err
 	}
+
+	if sharedSecret != "" {
+		decBuf, err := crypt.DecryptBytesWithSecret(buf, sharedSecret)
+		if err != nil {
+			return "", fmt.Errorf("failed to decrypt target header: %v", err)
+		}
+		buf = decBuf
+	}
+
 	return string(buf), nil
 }
 
@@ -65,23 +85,24 @@ func ReadTargetHeader(r io.Reader) (string, error) {
 // - When stream->client copy finishes, we close the TCP socket.
 // - On errors, we best-effort cancel the other direction to unblock.
 func BidiPipe(stream *quic.Stream, tcp net.Conn,
-	limiter *limiter.SharedLimiter, aesKey []byte) {
+	limiter *limiter.SharedLimiter, sharedSecret string) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
 	// Copy tcp -> stream
 	go func() {
 		defer wg.Done()
-		// If cryption is enabled, wrap the TCP connection
-		if aesKey != nil {
-			tcp = crypt.AesWrapConn(tcp, aesKey)
-		}
 
 		var src io.Reader
 		if limiter != nil {
 			src = limiter.WrapConn(tcp)
 		} else {
 			src = io.Reader(tcp)
+		}
+
+		if sharedSecret != "" {
+			aesStream := crypt.AesWrapQuicStream(stream, sharedSecret)
+			stream = aesStream.Stream
 		}
 
 		if _, err := io.Copy(stream, src); err != nil {
@@ -96,16 +117,16 @@ func BidiPipe(stream *quic.Stream, tcp net.Conn,
 	go func() {
 		defer wg.Done()
 
-		// If cryption is enabled, wrap the TCP connection
-		if aesKey != nil {
-			tcp = crypt.AesWrapConn(tcp, aesKey)
-		}
-
 		var dst io.Writer
 		if limiter != nil {
 			dst = limiter.WrapConn(tcp)
 		} else {
 			dst = io.Writer(tcp)
+		}
+
+		if sharedSecret != "" {
+			aesStream := crypt.AesWrapQuicStream(stream, sharedSecret)
+			stream = aesStream.Stream
 		}
 
 		if _, err := io.Copy(dst, stream); err != nil {
