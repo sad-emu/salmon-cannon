@@ -5,20 +5,20 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"errors"
-	"log"
+	"net"
 	"salmoncannon/utils"
-
-	"github.com/quic-go/quic-go"
+	"time"
 )
 
 type aesCtrConn struct {
-	Stream       *quic.Stream
+	Conn         net.Conn
 	initialised  bool
 	sharedSecret string
 	key          []byte
 	iv           []byte
 	ctrCipher    cipher.Stream
 	encBuf       []byte
+	pos          int32
 }
 
 const keyRandomHashSizeBytes = 32
@@ -120,7 +120,7 @@ func (t *aesCtrConn) Read(p []byte) (int, error) {
 	if !t.initialised {
 		keyMod := make([]byte, keyRandomHashSizeBytes)
 		// Read the key modifier from the connection
-		n, err := t.Stream.Read(keyMod)
+		n, err := t.Conn.Read(keyMod)
 		if err != nil || n != keyRandomHashSizeBytes {
 			if err == nil {
 				err = errors.New("short read: expected key modifier")
@@ -136,7 +136,7 @@ func (t *aesCtrConn) Read(p []byte) (int, error) {
 
 		keyIv := make([]byte, aes.BlockSize)
 		// Read the AES key IV from the connection
-		n, err = t.Stream.Read(keyIv)
+		n, err = t.Conn.Read(keyIv)
 		if err != nil || n != aes.BlockSize {
 			if err == nil {
 				err = errors.New("short read: expected key iv")
@@ -146,7 +146,7 @@ func (t *aesCtrConn) Read(p []byte) (int, error) {
 
 		encKey := make([]byte, aesKeySizeBytes)
 		// Read the encrypted AES key from the connection
-		n, err = t.Stream.Read(encKey)
+		n, err = t.Conn.Read(encKey)
 		if err != nil || n != aesKeySizeBytes {
 			if err == nil {
 				err = errors.New("short read: expected encrypted aes key")
@@ -164,7 +164,7 @@ func (t *aesCtrConn) Read(p []byte) (int, error) {
 
 		// Expect the next bytes to be the IV
 		iv := make([]byte, aes.BlockSize)
-		n, err = t.Stream.Read(iv)
+		n, err = t.Conn.Read(iv)
 		if err != nil {
 			return 0, err
 		}
@@ -172,7 +172,6 @@ func (t *aesCtrConn) Read(p []byte) (int, error) {
 			return 0, err
 		}
 
-		log.Printf("READ AES Key is: %q ", t.key)
 		block, err = aes.NewCipher(t.key)
 		t.ctrCipher = cipher.NewCTR(block, iv)
 		t.encBuf = make([]byte, len(p))
@@ -184,7 +183,7 @@ func (t *aesCtrConn) Read(p []byte) (int, error) {
 		t.encBuf = make([]byte, len(p))
 	}
 
-	n, err := t.Stream.Read(t.encBuf)
+	n, err := t.Conn.Read(t.encBuf)
 	if err != nil {
 		return n, err
 	}
@@ -194,7 +193,7 @@ func (t *aesCtrConn) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-func (t *aesCtrConn) updateAsWriter() error {
+func (t *aesCtrConn) initAsWriter() error {
 	aesKeyIv := make([]byte, aes.BlockSize)
 	if _, err := rand.Read(aesKeyIv); err != nil {
 		return err
@@ -204,13 +203,11 @@ func (t *aesCtrConn) updateAsWriter() error {
 		return err
 	}
 
-	log.Printf("WRITE AES Key is: %q ", t.key)
-
 	keyMod := make([]byte, keyRandomHashSizeBytes)
 	if _, err := rand.Read(keyMod); err != nil {
 		return err
 	}
-	n, err := t.Stream.Write(keyMod)
+	n, err := t.Conn.Write(keyMod)
 	if err != nil {
 		return err
 	}
@@ -229,7 +226,7 @@ func (t *aesCtrConn) updateAsWriter() error {
 	encKey := make([]byte, len(t.key))
 	keyCipher.XORKeyStream(encKey, t.key)
 
-	n, err = t.Stream.Write(aesKeyIv)
+	n, err = t.Conn.Write(aesKeyIv)
 	if err != nil {
 		return err
 	}
@@ -237,7 +234,7 @@ func (t *aesCtrConn) updateAsWriter() error {
 		return err
 	}
 
-	n, err = t.Stream.Write(encKey)
+	n, err = t.Conn.Write(encKey)
 	if err != nil {
 		return err
 	}
@@ -256,7 +253,7 @@ func (t *aesCtrConn) updateAsWriter() error {
 	}
 	t.ctrCipher = cipher.NewCTR(block, t.iv)
 
-	n, err = t.Stream.Write(t.iv)
+	n, err = t.Conn.Write(t.iv)
 	if err != nil {
 		return err
 	}
@@ -269,7 +266,7 @@ func (t *aesCtrConn) updateAsWriter() error {
 func (t *aesCtrConn) Write(p []byte) (int, error) {
 	// Initialise CTR cipher on first write
 	if !t.initialised {
-		if err := t.updateAsWriter(); err != nil {
+		if err := t.initAsWriter(); err != nil {
 			return 0, err
 		}
 		t.encBuf = make([]byte, len(p))
@@ -279,15 +276,37 @@ func (t *aesCtrConn) Write(p []byte) (int, error) {
 	if t.encBuf == nil || len(t.encBuf) < len(p) {
 		t.encBuf = make([]byte, len(p))
 	}
-	t.ctrCipher.XORKeyStream(t.encBuf, p)
-	return t.Stream.Write(t.encBuf[:len(p)])
+
+	t.ctrCipher.XORKeyStream(t.encBuf[:len(p)], p)
+
+	return t.Conn.Write(t.encBuf[:len(p)])
+}
+
+func (t *aesCtrConn) Close() error {
+	return t.Conn.Close()
+}
+
+func (t *aesCtrConn) LocalAddr() net.Addr {
+	return t.Conn.LocalAddr()
+}
+
+func (t *aesCtrConn) RemoteAddr() net.Addr {
+	return t.Conn.RemoteAddr()
+}
+
+func (t *aesCtrConn) SetDeadline(tm time.Time) error {
+	return t.Conn.SetDeadline(tm)
+}
+
+func (t *aesCtrConn) SetReadDeadline(tm time.Time) error {
+	return t.Conn.SetReadDeadline(tm)
+}
+
+func (t *aesCtrConn) SetWriteDeadline(tm time.Time) error {
+	return t.Conn.SetWriteDeadline(tm)
 }
 
 // WrapConn wraps a net.Conn so all reads/writes are encrypted/decrypted
-// func AesWrapConn(c net.Conn, sharedSecret string) net.Conn {
-// 	return &aesCtrConn{Conn: c, initialised: false, sharedSecret: sharedSecret}
-// }
-
-func AesWrapQuicStream(s *quic.Stream, sharedSecret string) *aesCtrConn {
-	return &aesCtrConn{Stream: s, initialised: false, sharedSecret: sharedSecret}
+func AesWrapConn(c net.Conn, sharedSecret string) *aesCtrConn {
+	return &aesCtrConn{Conn: c, initialised: false, sharedSecret: sharedSecret}
 }

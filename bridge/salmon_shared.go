@@ -93,16 +93,15 @@ func BidiPipe(stream *quic.Stream, tcp net.Conn,
 	go func() {
 		defer wg.Done()
 
+		if sharedSecret != "" {
+			tcp = crypt.AesWrapConn(tcp, sharedSecret)
+		}
+
 		var src io.Reader
 		if limiter != nil {
 			src = limiter.WrapConn(tcp)
 		} else {
 			src = io.Reader(tcp)
-		}
-
-		if sharedSecret != "" {
-			aesStream := crypt.AesWrapQuicStream(stream, sharedSecret)
-			stream = aesStream.Stream
 		}
 
 		if _, err := io.Copy(stream, src); err != nil {
@@ -117,16 +116,15 @@ func BidiPipe(stream *quic.Stream, tcp net.Conn,
 	go func() {
 		defer wg.Done()
 
+		if sharedSecret != "" {
+			tcp = crypt.AesWrapConn(tcp, sharedSecret)
+		}
+
 		var dst io.Writer
 		if limiter != nil {
 			dst = limiter.WrapConn(tcp)
 		} else {
 			dst = io.Writer(tcp)
-		}
-
-		if sharedSecret != "" {
-			aesStream := crypt.AesWrapQuicStream(stream, sharedSecret)
-			stream = aesStream.Stream
 		}
 
 		if _, err := io.Copy(dst, stream); err != nil {
