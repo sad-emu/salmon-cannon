@@ -18,12 +18,13 @@ type aesCtrConn struct {
 	iv           []byte
 	ctrCipher    cipher.Stream
 	encBuf       []byte
-	pos          int32
+	//pos          int32
 }
 
 const keyRandomHashSizeBytes = 32
 const aesKeySizeBytes = 32
-const updateKeyAfterBytes = 1024 * 1024 * 100
+
+//const updateKeyAfterBytes = 1024 * 1024 * 100
 
 func EncryptBytesWithSecret(plainText []byte, sharedSecret string) ([]byte, error) {
 	plaintextIv := make([]byte, aes.BlockSize)
@@ -115,65 +116,100 @@ func DecryptBytesWithSecret(cipherText []byte, sharedSecret string) ([]byte, err
 	return plaintext, nil
 }
 
+func (t *aesCtrConn) initAsReader() error {
+	keyMod := make([]byte, keyRandomHashSizeBytes)
+	// Read the key modifier from the connection
+	n, err := t.Conn.Read(keyMod)
+	if err != nil || n != keyRandomHashSizeBytes {
+		if err == nil {
+			err = errors.New("short read: expected key modifier")
+		}
+		return err
+	}
+
+	var encAesKey []byte
+	encAesKey, err = utils.DeriveEncKeyFromBytesAndSalt(t.sharedSecret, keyMod)
+	if err != nil {
+		return err
+	}
+
+	keyIv := make([]byte, aes.BlockSize)
+	// Read the AES key IV from the connection
+	n, err = t.Conn.Read(keyIv)
+	if err != nil || n != aes.BlockSize {
+		if err == nil {
+			err = errors.New("short read: expected key iv")
+		}
+		return err
+	}
+
+	encKey := make([]byte, aesKeySizeBytes)
+	// Read the encrypted AES key from the connection
+	n, err = t.Conn.Read(encKey)
+	if err != nil || n != aesKeySizeBytes {
+		if err == nil {
+			err = errors.New("short read: expected encrypted aes key")
+		}
+		return err
+	}
+
+	block, err := aes.NewCipher(encAesKey)
+	if err != nil {
+		return err
+	}
+	keyCipher := cipher.NewCTR(block, keyIv)
+	t.key = make([]byte, aesKeySizeBytes)
+	keyCipher.XORKeyStream(t.key, encKey)
+
+	// Expect the next bytes to be the IV
+	iv := make([]byte, aes.BlockSize)
+	n, err = t.Conn.Read(iv)
+	if err != nil {
+		return err
+	}
+	if n != aes.BlockSize {
+		return err
+	}
+
+	block, err = aes.NewCipher(t.key)
+	t.ctrCipher = cipher.NewCTR(block, iv)
+	return nil
+}
+
+// // TODO elegant way to do this
+// func (t *aesCtrConn) rekeyAsReader() error {
+// 	log.Printf("READ is rekeying AES CTR cipher after %d bytes", t.pos)
+// 	newKeyIv := make([]byte, aes.BlockSize)
+// 	if _, err := t.Conn.Read(newKeyIv); err != nil {
+// 		return err
+// 	}
+
+// 	t.ctrCipher.XORKeyStream(newKeyIv, newKeyIv)
+
+// 	newKey := make([]byte, aesKeySizeBytes)
+// 	if _, err := t.Conn.Read(newKey); err != nil {
+// 		return err
+// 	}
+
+// 	t.ctrCipher.XORKeyStream(newKey, newKey)
+
+// 	block, err := aes.NewCipher(newKey)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	t.ctrCipher = cipher.NewCTR(block, newKeyIv)
+
+// 	t.pos = 0
+// 	return nil
+// }
+
 func (t *aesCtrConn) Read(p []byte) (int, error) {
 	// Initialise CTR cipher on first read
 	if !t.initialised {
-		keyMod := make([]byte, keyRandomHashSizeBytes)
-		// Read the key modifier from the connection
-		n, err := t.Conn.Read(keyMod)
-		if err != nil || n != keyRandomHashSizeBytes {
-			if err == nil {
-				err = errors.New("short read: expected key modifier")
-			}
+		if err := t.initAsReader(); err != nil {
 			return 0, err
 		}
-
-		var encAesKey []byte
-		encAesKey, err = utils.DeriveEncKeyFromBytesAndSalt(t.sharedSecret, keyMod)
-		if err != nil {
-			return 0, err
-		}
-
-		keyIv := make([]byte, aes.BlockSize)
-		// Read the AES key IV from the connection
-		n, err = t.Conn.Read(keyIv)
-		if err != nil || n != aes.BlockSize {
-			if err == nil {
-				err = errors.New("short read: expected key iv")
-			}
-			return 0, err
-		}
-
-		encKey := make([]byte, aesKeySizeBytes)
-		// Read the encrypted AES key from the connection
-		n, err = t.Conn.Read(encKey)
-		if err != nil || n != aesKeySizeBytes {
-			if err == nil {
-				err = errors.New("short read: expected encrypted aes key")
-			}
-			return 0, err
-		}
-
-		block, err := aes.NewCipher(encAesKey)
-		if err != nil {
-			return 0, err
-		}
-		keyCipher := cipher.NewCTR(block, keyIv)
-		t.key = make([]byte, aesKeySizeBytes)
-		keyCipher.XORKeyStream(t.key, encKey)
-
-		// Expect the next bytes to be the IV
-		iv := make([]byte, aes.BlockSize)
-		n, err = t.Conn.Read(iv)
-		if err != nil {
-			return 0, err
-		}
-		if n != aes.BlockSize {
-			return 0, err
-		}
-
-		block, err = aes.NewCipher(t.key)
-		t.ctrCipher = cipher.NewCTR(block, iv)
 		t.encBuf = make([]byte, len(p))
 		t.initialised = true
 	}
@@ -190,6 +226,7 @@ func (t *aesCtrConn) Read(p []byte) (int, error) {
 
 	// Decrypt data
 	t.ctrCipher.XORKeyStream(p[:n], t.encBuf[:n])
+
 	return n, nil
 }
 
@@ -263,7 +300,36 @@ func (t *aesCtrConn) initAsWriter() error {
 	return nil
 }
 
+// // TODO elegant way to do this
+// func (t *aesCtrConn) rekeyAsWriter() error {
+// 	log.Printf("WRITE is rekeying AES CTR cipher after %d bytes", t.pos)
+
+// 	newKeyIv := make([]byte, aes.BlockSize)
+// 	if _, err := rand.Read(newKeyIv); err != nil {
+// 		return err
+// 	}
+// 	newKey := make([]byte, aesKeySizeBytes)
+// 	if _, err := rand.Read(newKey); err != nil {
+// 		return err
+// 	}
+
+// 	t.Conn.Write(newKeyIv)
+// 	t.Conn.Write(newKey)
+
+// 	block, err := aes.NewCipher(newKey)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	t.ctrCipher = cipher.NewCTR(block, newKeyIv)
+// 	t.pos = 0
+// 	return nil
+// }
+
 func (t *aesCtrConn) Write(p []byte) (int, error) {
+	// if len(p) > updateKeyAfterBytes {
+	// 	return 0, errors.New("write size exceeds rekey threshold")
+	// }
+
 	// Initialise CTR cipher on first write
 	if !t.initialised {
 		if err := t.initAsWriter(); err != nil {

@@ -134,18 +134,35 @@ func TestAesEncryptDecryptLarge(t *testing.T) {
 	testData := make([]byte, 200*1024*1024)
 	rand.Read(testData)
 
-	n, err := clientConn.Write(testData)
-	if err != nil {
-		t.Fatalf("Client write failed: %v", err)
+	// Do the write in 10 chunks to avoid overwhelming buffers
+	chunkSize := len(testData) / 10
+	for i := 0; i < 10; i++ {
+		start := i * chunkSize
+		end := start + chunkSize
+		if i == 9 {
+			end = len(testData)
+		}
+		n, err := clientConn.Write(testData[start:end])
+		if err != nil {
+			t.Fatalf("Client write chunk %d failed: %v", i, err)
+		}
+		if n != end-start {
+			t.Fatalf("Client write chunk %d: expected %d bytes, got %d", i, end-start, n)
+		}
 	}
-	if n != len(testData) {
-		t.Fatalf("Client write: expected %d bytes, got %d", len(testData), n)
-	}
+
+	//n, err := clientConn.Write(testData)
+	// if err != nil {
+	// 	t.Fatalf("Client write failed: %v", err)
+	// }
+	// if n != len(testData) {
+	// 	t.Fatalf("Client write: expected %d bytes, got %d", len(testData), n)
+	// }
 
 	serverToClient.readBuf = bytes.NewBuffer(clientToServer.writeBuf.Bytes())
 
 	readBuf := make([]byte, len(testData))
-	n, err = serverConn.Read(readBuf)
+	n, err := serverConn.Read(readBuf)
 	if err != nil {
 		t.Fatalf("Server read failed: %v", err)
 	}
@@ -154,6 +171,6 @@ func TestAesEncryptDecryptLarge(t *testing.T) {
 	}
 
 	if !bytes.Equal(readBuf[:n], testData) {
-		t.Fatalf("Decrypted data doesn't match original.\nExpected: %s\nGot: %s", testData, readBuf[:n])
+		t.Fatalf("Decrypted data doesn't match original. Too long to print.")
 	}
 }
