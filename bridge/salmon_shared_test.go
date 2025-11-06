@@ -98,11 +98,11 @@ func TestWriteTargetHeader_ValidInputEncrypted(t *testing.T) {
 		t.Fatalf("buffer too short: %v", data)
 	}
 	l := int(data[1])<<8 | int(data[2])
-	if l != 62 {
-		t.Errorf("expected encrypted length %d, got %d", 62, l)
+	if l != 110 {
+		t.Errorf("expected encrypted length %d, got %d", 110, l)
 	}
-	if !bytes.Contains(data[3:], []byte(addr)) {
-		t.Errorf("Buffer contains plaintext addr %q, got %q", addr, string(data[3:]))
+	if bytes.Contains(data[1:], []byte(addr)) {
+		t.Errorf("Buffer contains plaintext addr %q, got %q bytes matching are %q", addr, string(data[3:]), []byte(addr))
 	}
 
 	decryptedAddr, err := ReadTargetHeader(bytes.NewReader(data[1:]), "sharedSecret")
