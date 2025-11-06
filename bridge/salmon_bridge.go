@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"crypto/rand"
 	"crypto/tls"
 	"fmt"
 	"log"
@@ -115,17 +116,36 @@ func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 		defer internal.Close()
 		defer stream.Close()
 
+		var readIv, writeIv, readKey, writeKey []byte
+
 		// 1) Send a small header carrying target address.
 		target := fmt.Sprintf("%s:%d", host, port)
-		if err := WriteTargetHeader(stream, target, s.sharedSecret); err != nil {
-			log.Printf("NEAR: write header error: %v", err)
-			// If we fail before copying, cancel read to unblock far side quickly.
-			stream.CancelRead(0)
-			return
+		if s.sharedSecret != "" {
+			if err := WriteTargetHeader(stream, target); err != nil {
+				log.Printf("NEAR: write header error: %v", err)
+				// If we fail before copying, cancel read to unblock far side quickly.
+				stream.CancelRead(0)
+				return
+			}
+		} else {
+			readIv = make([]byte, 16)
+			writeIv = make([]byte, 16)
+			readKey = make([]byte, 32)
+			writeKey = make([]byte, 32)
+			rand.Read(readIv)
+			rand.Read(writeIv)
+			rand.Read(readKey)
+			rand.Read(writeKey)
+			if err := WriteTargetHeaderEnc(stream, target, readIv, writeIv, readKey, writeKey, s.sharedSecret); err != nil {
+				log.Printf("NEAR: write encrypted header error: %v", err)
+				// If we fail before copying, cancel read to unblock far side quickly.
+				stream.CancelRead(0)
+				return
+			}
 		}
 
 		// 2) Pump data both ways.
-		BidiPipe(stream, internal, s.sl, s.sharedSecret)
+		BidiPipe(stream, internal, s.sl, readIv, readKey, writeIv, writeKey)
 	}()
 
 	return clientSide, nil
@@ -183,14 +203,27 @@ func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 		return
 	}
 
-	target, err := ReadTargetHeader(stream, s.sharedSecret)
-	if err != nil {
-		log.Printf("FAR: Bridge %s read header error: %v", s.BridgeName, err)
-		stream.CancelRead(0)
-		stream.Close()
-		return
-	}
+	var target string
+	var readIv, writeIv, readKey, writeKey []byte
 
+	if headerType == CONNECT_HEADER {
+		target, err = ReadTargetHeader(stream)
+		if err != nil {
+			log.Printf("FAR: Bridge %s read standard header error: %v", s.BridgeName, err)
+			stream.CancelRead(0)
+			stream.Close()
+			return
+		}
+	}
+	if headerType == CONNECT_ENC_HEADER {
+		target, readIv, writeIv, readKey, writeKey, err = ReadTargetHeaderEnc(stream, s.sharedSecret)
+		if err != nil {
+			log.Printf("FAR: Bridge %s read encrypted header error: %v", s.BridgeName, err)
+			stream.CancelRead(0)
+			stream.Close()
+			return
+		}
+	}
 	// 2) Check for allowed outbound IPs/Hostnames
 	if s.shouldBlockFarOutConn(target) {
 		log.Printf("FAR: Bridge %s target addr not found in allow list: %s", s.BridgeName, target)
@@ -218,7 +251,7 @@ func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 	status.GlobalConnMonitorRef.IncOUT()
 
 	// 4) Pipe bytes both directions.
-	BidiPipe(stream, dst, s.sl, s.sharedSecret)
+	BidiPipe(stream, dst, s.sl, writeIv, writeKey, readIv, readKey)
 }
 
 func (s *SalmonBridge) NewFarListen() error {
