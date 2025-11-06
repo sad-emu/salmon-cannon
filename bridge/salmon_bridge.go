@@ -207,6 +207,12 @@ func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 	var readIv, writeIv, readKey, writeKey []byte
 
 	if headerType == CONNECT_HEADER {
+		if s.sharedSecret != "" {
+			log.Printf("FAR: Bridge %s received CONNECT_HEADER but sharedSecret is set", s.BridgeName)
+			stream.CancelRead(0)
+			stream.Close()
+			return
+		}
 		target, err = ReadTargetHeader(stream)
 		if err != nil {
 			log.Printf("FAR: Bridge %s read standard header error: %v", s.BridgeName, err)
