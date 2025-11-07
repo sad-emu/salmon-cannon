@@ -120,7 +120,7 @@ func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 
 		// 1) Send a small header carrying target address.
 		target := fmt.Sprintf("%s:%d", host, port)
-		if s.sharedSecret != "" {
+		if s.sharedSecret == "" {
 			if err := WriteTargetHeader(stream, target); err != nil {
 				log.Printf("NEAR: write header error: %v", err)
 				// If we fail before copying, cancel read to unblock far side quickly.
