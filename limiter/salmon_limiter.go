@@ -22,7 +22,9 @@ func (t *throttledConn) Read(p []byte) (int, error) {
 	n, err := t.Conn.Read(p)
 	if n > 0 {
 		t.bucket.Wait(int64(n))
-		t.limiter.recordBytes(int64(n))
+		if t.limiter != nil {
+			t.limiter.recordBytes(int64(n))
+		}
 	}
 	return n, err
 }
@@ -31,7 +33,9 @@ func (t *throttledConn) Write(p []byte) (int, error) {
 	t.bucket.Wait(int64(len(p)))
 	n, err := t.Conn.Write(p)
 	if err == nil {
-		t.limiter.recordBytes(int64(n))
+		if t.limiter != nil {
+			t.limiter.recordBytes(int64(n))
+		}
 	}
 	return n, err
 }
