@@ -45,8 +45,21 @@ func (s *Server) Start() error {
 	}
 	s.ln = ln
 
+	// Check if TLS is configured
+	useTLS := s.cfg.ApiConfig != nil &&
+		s.cfg.ApiConfig.TLSCert != "" &&
+		s.cfg.ApiConfig.TLSKey != ""
+
 	go func() {
-		if err := h.Serve(ln); err != nil && err != http.ErrServerClosed {
+		var err error
+		if useTLS {
+			log.Printf("api: starting HTTPS server on %s", s.listenAddr)
+			err = h.ServeTLS(ln, s.cfg.ApiConfig.TLSCert, s.cfg.ApiConfig.TLSKey)
+		} else {
+			log.Printf("api: starting HTTP server on %s", s.listenAddr)
+			err = h.Serve(ln)
+		}
+		if err != nil && err != http.ErrServerClosed {
 			log.Printf("api: http server error: %v", err)
 		}
 	}()

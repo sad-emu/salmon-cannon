@@ -1,7 +1,9 @@
 ApiConfig:
   Hostname: "localhost"
   Port: 8081
-
+  # Optional for TLS
+  # TLSCert: "/path/to/server.crt"
+  # TLSKey: "/path/to/server.key"
 SocksRedirect:
   Hostname: "localhost"
   Port: 8082

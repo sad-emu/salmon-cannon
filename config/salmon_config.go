@@ -40,6 +40,8 @@ func (q *QuicConfig) SetDefaults() {
 type ApiConfig struct {
 	Hostname string `yaml:"Hostname,omitempty"`
 	Port     int    `yaml:"Port,omitempty"`
+	TLSCert  string `yaml:"TLSCert,omitempty"` // Path to TLS certificate file
+	TLSKey   string `yaml:"TLSKey,omitempty"`  // Path to TLS key file
 }
 
 type SocksRedirectConfig struct {

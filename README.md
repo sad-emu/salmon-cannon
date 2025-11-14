@@ -169,10 +169,18 @@ The API server is configured via the `ApiConfig` section in your config:
 ApiConfig:
   Hostname: "localhost"
   Port: 8081
+  TLSCert: "/path/to/server.crt"  # Optional: Path to TLS certificate file
+  TLSKey: "/path/to/server.key"   # Optional: Path to TLS key file
 ```
 
 - `Hostname`: Hostname for the server
 - `Port`: Port for the server
+- `TLSCert`: (Optional) Path to TLS certificate file for HTTPS
+- `TLSKey`: (Optional) Path to TLS key file for HTTPS
+
+**API TLS/HTTPS Support:**
+- If both `TLSCert` and `TLSKey` are provided the API server will use HTTPS
+- If either is omitted the server defaults to HTTP
 
 #### Supported Requests
 
