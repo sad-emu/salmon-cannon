@@ -202,11 +202,23 @@ func (s *SalmonQuic) closeConnection(qconn *quicConnection) {
 		_ = qconn.pconn.Close()
 		qconn.pconn = nil
 	}
+
+	// // This need to remove it from the pool as well
+	s.connectionsMu.Lock()
+	defer s.connectionsMu.Unlock()
+
+	// Remove from connections slice
+	for i, conn := range s.connections {
+		if conn == qconn {
+			s.connections = append(s.connections[:i], s.connections[i+1:]...)
+			break
+		}
+	}
 }
 
 // connectionCleanupLoop periodically removes idle connections
 func (s *SalmonQuic) connectionCleanupLoop() {
-	ticker := time.NewTicker(1 * time.Minute)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -260,6 +272,8 @@ func (s *SalmonQuic) OpenStream() (*quic.Stream, func(), error) {
 	stream, err := qconn.conn.OpenStreamSync(ctx)
 	if err != nil {
 		atomic.AddInt32(&qconn.activeStreams, -1)
+		// This connection is no good, close it
+		s.closeConnection(qconn)
 		return nil, nil, fmt.Errorf("failed to open stream: %w", err)
 	}
 

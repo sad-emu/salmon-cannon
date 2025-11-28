@@ -43,7 +43,7 @@ func (cm *ConnectionMonitor) GetStatus(name string) bool {
 	if !ok {
 		return ok
 	}
-	return ok && time.Since(lastStatusTime.(time.Time)) < 3*time.Second
+	return ok && time.Since(lastStatusTime.(time.Time)) < 20*time.Second
 }
 
 func (cm *ConnectionMonitor) GetLastAliveMs(name string) int64 {

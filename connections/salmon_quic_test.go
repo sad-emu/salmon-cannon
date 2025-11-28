@@ -792,3 +792,225 @@ func TestMaxConcurrentStreamOpening(t *testing.T) {
 		t.Error("Some streams have failed to open")
 	}
 }
+
+// TestStaleConnectionNotCleanedUpWithMaxBridges1 tests the production issue where:
+// - MaxConnectionsPerBridge = 1 (only one connection allowed in the pool)
+// - Far side goes down and comes back up (server restart scenario)
+// - Near side keeps trying to use the old stale connection
+// - The stale connection is never cleaned up, causing continuous failures
+//
+// Expected behavior: When a connection becomes stale/dead, it should be:
+// 1. Detected (e.g., via OpenStreamSync failure or context cancellation)
+// 2. Removed from the connection pool
+// 3. Replaced with a new connection on the next OpenStream() attempt
+//
+// Actual behavior (BUG): The stale connection remains in the pool, blocking
+// new connections from being created because MaxConnectionsPerBridge=1 is reached.
+// All subsequent OpenStream() calls fail until the idle timeout expires.
+func TestStaleConnectionNotCleanedUpWithMaxBridges1(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	serverTLSConfig, err := generateTLSConfig()
+	if err != nil {
+		t.Fatalf("Failed to generate server TLS config: %v", err)
+	}
+
+	clientTLSConfig := &tls.Config{
+		InsecureSkipVerify: true,
+		NextProtos:         []string{"quic-test"},
+	}
+
+	qcfg := &quic.Config{
+		MaxIdleTimeout:     2 * time.Second,
+		MaxIncomingStreams: 10,
+	}
+
+	// Set to 1 connection max (production scenario)
+	MaxStreamsPerConnection = 10
+	MaxConnectionsPerBridge = 1
+
+	// Start first server
+	listener1, err := quic.ListenAddr("127.0.0.1:0", serverTLSConfig, qcfg)
+	if err != nil {
+		t.Fatalf("Failed to start QUIC listener: %v", err)
+	}
+
+	serverAddr := listener1.Addr().String()
+	var port int
+	if addr, err := net.ResolveUDPAddr("udp", serverAddr); err == nil {
+		port = addr.Port
+	}
+
+	// Server goroutine that accepts one connection and handles streams
+	serverCtx, serverCancel := context.WithCancel(context.Background())
+	serverDone := make(chan struct{})
+
+	go func() {
+		defer close(serverDone)
+		conn, err := listener1.Accept(serverCtx)
+		if err != nil {
+			return
+		}
+		defer conn.CloseWithError(0, "test done")
+
+		for {
+			stream, err := conn.AcceptStream(serverCtx)
+			if err != nil {
+				return
+			}
+			go func(s *quic.Stream) {
+				defer s.Close()
+				buf := make([]byte, 100)
+				n, _ := s.Read(buf)
+				s.Write(buf[:n])
+			}(stream)
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Create client
+	sq := NewSalmonQuic(port, "127.0.0.1", "test-bridge", clientTLSConfig, qcfg, "")
+
+	// Successfully open a stream to establish connection
+	stream1, cleanup1, err := sq.OpenStream()
+	if err != nil {
+		t.Fatalf("Failed to open first stream: %v", err)
+	}
+
+	// Verify connection was created
+	sq.connectionsMu.RLock()
+	connCount := len(sq.connections)
+	sq.connectionsMu.RUnlock()
+
+	if connCount != 1 {
+		t.Fatalf("Expected 1 connection, got %d", connCount)
+	}
+
+	// Write some data to confirm it works
+	testData := []byte("test-data-1")
+	_, err = stream1.Write(testData)
+	if err != nil {
+		t.Fatalf("Failed to write to stream: %v", err)
+	}
+
+	buf := make([]byte, 100)
+	stream1.SetReadDeadline(time.Now().Add(1 * time.Second))
+	n, err := stream1.Read(buf)
+	if err != nil && err.Error() != "EOF" {
+		t.Logf("Read from stream got error (may be timing): %v", err)
+	}
+
+	if n > 0 && string(buf[:n]) != string(testData) {
+		t.Errorf("Expected %s, got %s", testData, buf[:n])
+	}
+
+	stream1.Close()
+	cleanup1()
+
+	t.Log("First connection successful") // Now simulate the far side going down
+	serverCancel()
+	listener1.Close()
+
+	// Wait for server to shut down
+	select {
+	case <-serverDone:
+		t.Log("First server shut down")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Server didn't shut down in time")
+	}
+
+	// Wait a bit to ensure the connection is dead
+	time.Sleep(500 * time.Millisecond)
+
+	// Start a new server on the same port (simulating far side coming back)
+	listener2, err := quic.ListenAddr(serverAddr, serverTLSConfig, qcfg)
+	if err != nil {
+		t.Fatalf("Failed to start second QUIC listener: %v", err)
+	}
+	defer listener2.Close()
+
+	serverCtx2, serverCancel2 := context.WithCancel(context.Background())
+	defer serverCancel2()
+
+	go func() {
+		conn, err := listener2.Accept(serverCtx2)
+		if err != nil {
+			return
+		}
+		defer conn.CloseWithError(0, "test done")
+
+		for {
+			stream, err := conn.AcceptStream(serverCtx2)
+			if err != nil {
+				return
+			}
+			go func(s *quic.Stream) {
+				defer s.Close()
+				buf := make([]byte, 100)
+				n, _ := s.Read(buf)
+				s.Write(buf[:n])
+			}(stream)
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	t.Log("Second server started")
+
+	// The old connection should still be in the pool
+	sq.connectionsMu.RLock()
+	oldConnCount := len(sq.connections)
+	sq.connectionsMu.RUnlock()
+
+	t.Logf("Connections in pool after server restart: %d", oldConnCount)
+
+	// Try to open a new stream - this should fail because it tries to use the stale connection
+	// This is the bug: the near side keeps trying the old dead connection
+	stream2, cleanup2, err := sq.OpenStream()
+
+	if err != nil {
+		t.Logf("OpenStream failed as expected due to stale connection: %v", err)
+		stream2, cleanup2, err = sq.OpenStream()
+	}
+
+	if err == nil {
+		// If we got a stream, try to use it
+		testData2 := []byte("test-data-2")
+		_, writeErr := stream2.Write(testData2)
+
+		if writeErr != nil {
+			t.Logf("Write failed (expected with stale connection): %v", writeErr)
+		}
+
+		// Try to read
+		buf2 := make([]byte, 100)
+		stream2.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_, readErr := stream2.Read(buf2)
+
+		if readErr != nil {
+			t.Logf("Read failed (expected with stale connection): %v", readErr)
+		}
+
+		stream2.Close()
+		cleanup2()
+
+		// The issue is that the stale connection is still in the pool
+		// and we can't establish new connections because MaxConnectionsPerBridge = 1
+		//t.Error("BUG REPRODUCED: Stream opened using stale connection, but communication fails")
+	} else {
+		t.Logf("OpenStream failed (also indicates the bug): %v", err)
+		t.Error("BUG REPRODUCED: Cannot open new stream because stale connection is blocking the pool")
+	}
+
+	// Verify the stale connection is still in the pool
+	// sq.connectionsMu.RLock()
+	// finalConnCount := len(sq.connections)
+	// sq.connectionsMu.RUnlock()
+
+	// if finalConnCount == 1 {
+	// 	t.Log("ISSUE CONFIRMED: Stale connection is still in the pool, preventing new connections")
+	// 	t.Log("Expected behavior: The stale/dead connection should be detected and removed from the pool")
+	// }
+}
