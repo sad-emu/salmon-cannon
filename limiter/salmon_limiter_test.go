@@ -38,7 +38,8 @@ func (f *fakeConn) SetWriteDeadline(t time.Time) error { return nil }
 func TestThrottledConn_Read_Pass(t *testing.T) {
 	bucket := ratelimit.NewBucketWithRate(1e6, 1e6) // high rate, shouldn't block
 	fc := newFakeConn("hello world")
-	tc := &throttledConn{Conn: fc, bucket: bucket}
+	dc := uint64(0)
+	tc := &throttledConn{Conn: fc, bucket: bucket, dataCount: &dc}
 
 	buf := make([]byte, 11)
 	n, err := tc.Read(buf)
@@ -53,7 +54,8 @@ func TestThrottledConn_Read_Pass(t *testing.T) {
 func TestThrottledConn_Read_Empty(t *testing.T) {
 	bucket := ratelimit.NewBucketWithRate(1e6, 1e6)
 	fc := newFakeConn("") // no data to read
-	tc := &throttledConn{Conn: fc, bucket: bucket}
+	dc := uint64(0)
+	tc := &throttledConn{Conn: fc, bucket: bucket, dataCount: &dc}
 
 	buf := make([]byte, 1)
 	n, err := tc.Read(buf)
@@ -65,7 +67,8 @@ func TestThrottledConn_Read_Empty(t *testing.T) {
 func TestThrottledConn_Write_Pass(t *testing.T) {
 	bucket := ratelimit.NewBucketWithRate(1e6, 1e6)
 	fc := newFakeConn("")
-	tc := &throttledConn{Conn: fc, bucket: bucket}
+	dc := uint64(0)
+	tc := &throttledConn{Conn: fc, bucket: bucket, dataCount: &dc}
 
 	data := []byte("foobar")
 	n, err := tc.Write(data)
@@ -83,7 +86,8 @@ func TestThrottledConn_Write_Pass(t *testing.T) {
 func TestThrottledConn_Write_Zero(t *testing.T) {
 	bucket := ratelimit.NewBucketWithRate(1e6, 1e6)
 	fc := newFakeConn("")
-	tc := &throttledConn{Conn: fc, bucket: bucket}
+	dc := uint64(0)
+	tc := &throttledConn{Conn: fc, bucket: bucket, dataCount: &dc}
 
 	n, err := tc.Write([]byte{})
 	if err != nil {
