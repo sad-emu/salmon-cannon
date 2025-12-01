@@ -8,6 +8,7 @@ import (
 	"salmoncannon/crypt"
 	"salmoncannon/limiter"
 	"sync"
+	"time"
 
 	quic "github.com/quic-go/quic-go"
 )
@@ -157,7 +158,7 @@ func BidiPipe(stream *quic.Stream, tcp net.Conn,
 		}
 		stream.Close()
 		// Force the other direction to stop by setting deadline
-		// tcp.SetReadDeadline(time.Now())
+		tcp.SetReadDeadline(time.Now())
 	}()
 
 	// Copy stream -> tcp

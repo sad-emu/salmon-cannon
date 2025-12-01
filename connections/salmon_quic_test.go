@@ -143,7 +143,7 @@ func TestConnectionToInvalidAddress(t *testing.T) {
 	sq := NewSalmonQuic(1, "invalid-host-name-that-does-not-exist", "test-bridge", tlscfg, qcfg, "")
 
 	// Try to open a stream, which will attempt to create a connection
-	_, cleanup, err := sq.OpenStream()
+	_, cleanup, err, _ := sq.OpenStream()
 	if err == nil {
 		if cleanup != nil {
 			cleanup()
@@ -174,7 +174,7 @@ func TestConnectionCreationFailure(t *testing.T) {
 	sq := NewSalmonQuic(1, "invalid-host", "test-bridge", tlscfg, qcfg, "")
 
 	// Attempt to open stream should fail when trying to create connection
-	_, cleanup, err := sq.OpenStream()
+	_, cleanup, err, _ := sq.OpenStream()
 	if err == nil {
 		if cleanup != nil {
 			cleanup()
@@ -195,7 +195,7 @@ func TestOpenStreamWithoutConnection(t *testing.T) {
 
 	sq := NewSalmonQuic(1, "invalid-host", "test-bridge", tlscfg, qcfg, "")
 
-	_, cleanup, err := sq.OpenStream()
+	_, cleanup, err, _ := sq.OpenStream()
 	if err == nil {
 		if cleanup != nil {
 			cleanup()
@@ -267,7 +267,7 @@ func TestOpenStreamIntegration(t *testing.T) {
 	sq := NewSalmonQuic(port, "127.0.0.1", "test-bridge", clientTLSConfig, qcfg, "")
 
 	// Open stream
-	stream, cleanup, err := sq.OpenStream()
+	stream, cleanup, err, _ := sq.OpenStream()
 	if err != nil {
 		t.Fatalf("Failed to open stream: %v", err)
 	}
@@ -368,7 +368,7 @@ func TestConcurrentStreamOpening(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			stream, cleanup, err := sq.OpenStream()
+			stream, cleanup, err, _ := sq.OpenStream()
 			if err != nil {
 				errors <- err
 				return
@@ -415,7 +415,7 @@ func TestConnectionPoolFailure(t *testing.T) {
 	sq := NewSalmonQuic(1, "invalid-host", "test-bridge", tlscfg, qcfg, "")
 
 	// Try to open stream to invalid host (should fail)
-	_, cleanup, err := sq.OpenStream()
+	_, cleanup, err, _ := sq.OpenStream()
 	if err == nil {
 		if cleanup != nil {
 			cleanup()
@@ -450,7 +450,7 @@ func TestMutexSafety(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, cleanup, _ := sq.OpenStream()
+			_, cleanup, _, _ := sq.OpenStream()
 			if cleanup != nil {
 				cleanup()
 			}
@@ -548,7 +548,7 @@ func TestConnectionPooling(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			stream, cleanup, err := sq.OpenStream()
+			stream, cleanup, err, _ := sq.OpenStream()
 			if err != nil {
 				t.Logf("Stream %d error: %v", id, err)
 				return
@@ -650,7 +650,7 @@ func TestMaxConcurrentStreamOpeningFails(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			stream, cleanup, err := sq.OpenStream()
+			stream, cleanup, err, _ := sq.OpenStream()
 			if err != nil {
 				errors <- err
 				return
@@ -759,7 +759,7 @@ func TestMaxConcurrentStreamOpening(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			stream, cleanup, err := sq.OpenStream()
+			stream, cleanup, err, _ := sq.OpenStream()
 			if err != nil {
 				errors <- err
 				return
@@ -875,7 +875,7 @@ func TestStaleConnectionNotCleanedUpWithMaxBridges1(t *testing.T) {
 	sq := NewSalmonQuic(port, "127.0.0.1", "test-bridge", clientTLSConfig, qcfg, "")
 
 	// Successfully open a stream to establish connection
-	stream1, cleanup1, err := sq.OpenStream()
+	stream1, cleanup1, err, _ := sq.OpenStream()
 	if err != nil {
 		t.Fatalf("Failed to open first stream: %v", err)
 	}
@@ -968,11 +968,11 @@ func TestStaleConnectionNotCleanedUpWithMaxBridges1(t *testing.T) {
 
 	// Try to open a new stream - this should fail because it tries to use the stale connection
 	// This is the bug: the near side keeps trying the old dead connection
-	stream2, cleanup2, err := sq.OpenStream()
+	stream2, cleanup2, err, _ := sq.OpenStream()
 
 	if err != nil {
 		t.Logf("OpenStream failed as expected due to stale connection: %v", err)
-		stream2, cleanup2, err = sq.OpenStream()
+		stream2, cleanup2, err, _ = sq.OpenStream()
 	}
 
 	if err == nil {

@@ -15,7 +15,7 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-const VERSION = "0.0.9"
+const VERSION = "0.0.10"
 
 func main() {
 	log.Printf("Salmon Cannon version %s starting...", VERSION)

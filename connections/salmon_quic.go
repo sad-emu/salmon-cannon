@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"runtime"
+	"salmoncannon/status"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -20,7 +21,6 @@ type quicConnection struct {
 	pconn         net.PacketConn
 	activeStreams int32 // atomic counter
 	createdAt     time.Time
-	lastUsed      time.Time
 	mu            sync.Mutex
 }
 
@@ -48,10 +48,13 @@ func NewSalmonQuic(port int, address string, name string, tlscfg *tls.Config,
 		interfaceName: interfaceName,
 		connections:   make([]*quicConnection, 0, MaxConnectionsPerBridge),
 	}
+	// Reset the stream map for this bridge
+	status.GlobalConnMonitorRef.ResetStreamCount(name)
+
 	// Start cleanup goroutine
-	sq.cleanupOnce.Do(func() {
-		go sq.connectionCleanupLoop()
-	})
+	// sq.cleanupOnce.Do(func() {
+	// 	go sq.connectionCleanupLoop()
+	// })
 	return sq
 }
 
@@ -148,7 +151,6 @@ func (s *SalmonQuic) createNewConnection(ctx context.Context) (*quicConnection, 
 		pconn:         pc,
 		activeStreams: 0,
 		createdAt:     time.Now(),
-		lastUsed:      time.Now(),
 	}
 
 	return qconnection, nil
@@ -161,12 +163,16 @@ func (s *SalmonQuic) selectConnection() (*quicConnection, error) {
 
 	// Can we to create a new connection
 	if len(s.connections) < MaxConnectionsPerBridge {
-		newConnection, err := s.createNewConnection(context.Background())
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		newConnection, err := s.createNewConnection(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create new connection: %w", err)
 		}
 
 		s.connections = append(s.connections, newConnection)
+		status.GlobalConnMonitorRef.AddStream(s.BridgeName)
 		log.Printf("NEAR: Created new connection (total: %d/%d) for %s", len(s.connections), MaxConnectionsPerBridge, s.BridgeName)
 		return newConnection, nil
 	} else {
@@ -183,6 +189,7 @@ func (s *SalmonQuic) selectConnection() (*quicConnection, error) {
 
 		// If found a suitable connection, use it
 		if selected != nil {
+			status.GlobalConnMonitorRef.AddStream(s.BridgeName)
 			return selected, nil
 		}
 		return nil, fmt.Errorf("all connections are at maximum stream capacity")
@@ -190,7 +197,7 @@ func (s *SalmonQuic) selectConnection() (*quicConnection, error) {
 }
 
 // closeConnection safely closes a connection
-func (s *SalmonQuic) closeConnection(qconn *quicConnection) {
+func (s *SalmonQuic) CloseConnection(qconn *quicConnection) {
 	qconn.mu.Lock()
 	defer qconn.mu.Unlock()
 
@@ -216,53 +223,53 @@ func (s *SalmonQuic) closeConnection(qconn *quicConnection) {
 	}
 }
 
-// connectionCleanupLoop periodically removes idle connections
-func (s *SalmonQuic) connectionCleanupLoop() {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
+// // connectionCleanupLoop periodically removes idle connections
+// func (s *SalmonQuic) connectionCleanupLoop() {
+// 	ticker := time.NewTicker(5 * time.Second)
+// 	defer ticker.Stop()
 
-	for range ticker.C {
-		s.connectionsMu.Lock()
+// 	for range ticker.C {
+// 		s.connectionsMu.Lock()
 
-		// Check each connection for idle timeout
-		activeConnections := make([]*quicConnection, 0, len(s.connections))
-		for _, conn := range s.connections {
-			activeCount := atomic.LoadInt32(&conn.activeStreams)
+// 		// Check each connection for idle timeout
+// 		activeConnections := make([]*quicConnection, 0, len(s.connections))
+// 		for _, conn := range s.connections {
+// 			activeCount := atomic.LoadInt32(&conn.activeStreams)
 
-			// Keep connection if it has active streams or was recently used
-			if activeCount > 0 || time.Since(conn.lastUsed) < ConnectionIdleTimeout {
-				activeConnections = append(activeConnections, conn)
-			} else {
-				log.Printf("NEAR: Closing idle connection for %s (last used: %v ago)", s.BridgeName, time.Since(conn.lastUsed))
-				s.closeConnection(conn)
-			}
-		}
+// 			// Keep connection if it has active streams or was recently used
+// 			if activeCount > 0 || time.Since(conn.createdAt) < 30*time.Second {
+// 				log.Printf("NEAR: Keeping active connection for %s (active streams: %d)", s.BridgeName, activeCount)
+// 				activeConnections = append(activeConnections, conn)
+// 			} else {
+// 				// Ping through the connection
 
-		s.connections = activeConnections
-		s.connectionsMu.Unlock()
-	}
-}
+// 				log.Printf("NEAR: Closing idle connection for %s (created: %v ago)", s.BridgeName, time.Since(conn.createdAt))
+// 				s.closeConnection(conn)
+// 				log.Printf("NEAR: Active connections for %s: %d", s.BridgeName, len(activeConnections))
+// 				log.Printf("NEAR: Active streams for %s: %d", s.BridgeName, status.GlobalConnMonitorRef.GetStreamCount(s.BridgeName))
+// 			}
+// 		}
+
+// 		s.connections = activeConnections
+// 		s.connectionsMu.Unlock()
+// 	}
+// }
 
 // OpenStream opens a QUIC stream using the bridge pool
 // Returns the stream and a cleanup function that MUST be called when done
-func (s *SalmonQuic) OpenStream() (*quic.Stream, func(), error) {
+func (s *SalmonQuic) OpenStream() (*quic.Stream, func(), error, *quicConnection) {
 	// Select or create a connection
 	qconn, err := s.selectConnection()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to select connection: %w", err)
+		return nil, nil, fmt.Errorf("failed to select connection: %w", err), nil
 	}
 
 	// Increment active stream counter
 	atomic.AddInt32(&qconn.activeStreams, 1)
 
-	// Update last used timestamp
-	qconn.mu.Lock()
-	qconn.lastUsed = time.Now()
-	qconn.mu.Unlock()
-
 	if qconn == nil {
 		atomic.AddInt32(&qconn.activeStreams, -1)
-		return nil, nil, fmt.Errorf("connection is nil")
+		return nil, nil, fmt.Errorf("connection is nil"), nil
 	}
 
 	// Open stream with timeout
@@ -273,16 +280,17 @@ func (s *SalmonQuic) OpenStream() (*quic.Stream, func(), error) {
 	if err != nil {
 		atomic.AddInt32(&qconn.activeStreams, -1)
 		// This connection is no good, close it
-		s.closeConnection(qconn)
-		return nil, nil, fmt.Errorf("failed to open stream: %w", err)
+		s.CloseConnection(qconn)
+		return nil, nil, fmt.Errorf("failed to open stream: %w", err), nil
 	}
 
 	// Cleanup function to decrement counter
 	cleanup := func() {
+		status.GlobalConnMonitorRef.RemoveStream(s.BridgeName)
 		atomic.AddInt32(&qconn.activeStreams, -1)
 	}
 
-	return stream, cleanup, nil
+	return stream, cleanup, nil, qconn
 }
 
 func shouldBlockHost(expectedRemote string, newRemote string) bool {
@@ -333,6 +341,7 @@ func (s *SalmonQuic) NewFarListen(handleIncomingStream func(*quic.Stream)) error
 						log.Printf("FAR: Bridge %s AcceptStream closed: %v", s.BridgeName, err)
 						return
 					}
+					status.GlobalConnMonitorRef.AddStream(s.BridgeName)
 					go handleIncomingStream(stream)
 				}
 			}(conn)
@@ -365,6 +374,7 @@ func (s *SalmonQuic) NewFarListen(handleIncomingStream func(*quic.Stream)) error
 						log.Printf("FAR: Bridge %s AcceptStream closed: %v", s.BridgeName, err)
 						return
 					}
+					status.GlobalConnMonitorRef.AddStream(s.BridgeName)
 					go handleIncomingStream(stream)
 				}
 			}(qc)

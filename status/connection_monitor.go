@@ -20,6 +20,7 @@ type ConnectionMonitor struct {
 
 	limiterMap sync.Map
 	statusMap  sync.Map
+	streamMap  sync.Map
 	pingMap    sync.Map
 }
 
@@ -36,6 +37,29 @@ func (cm *ConnectionMonitor) GetLimiter(name string) (interface{}, bool) {
 func (cm *ConnectionMonitor) RegisterPing(name string, ping int64) {
 	cm.statusMap.Store(name, time.Now())
 	cm.pingMap.Store(name, ping)
+}
+
+func (cm *ConnectionMonitor) AddStream(bridgeName string) {
+	pval, _ := cm.streamMap.LoadOrStore(bridgeName, int64(0))
+	cm.streamMap.Store(bridgeName, pval.(int64)+1)
+}
+
+func (cm *ConnectionMonitor) RemoveStream(bridgeName string) {
+	pval, _ := cm.streamMap.LoadOrStore(bridgeName, int64(0))
+	cm.streamMap.Store(bridgeName, pval.(int64)-1)
+}
+
+func (cm *ConnectionMonitor) ResetStreamCount(bridgeName string) {
+	cm.streamMap.LoadOrStore(bridgeName, int64(0))
+	cm.streamMap.Store(bridgeName, int64(0))
+}
+
+func (cm *ConnectionMonitor) GetStreamCount(bridgeName string) int64 {
+	pval, ok := cm.streamMap.Load(bridgeName)
+	if !ok {
+		return 0
+	}
+	return pval.(int64)
 }
 
 func (cm *ConnectionMonitor) GetStatus(name string) bool {
@@ -109,14 +133,14 @@ func (cm *ConnectionMonitor) StartPeriodicLogging() {
 				m.HeapAlloc/1024/1024,
 			)
 
-			cm.limiterMap.Range(func(key, value interface{}) bool {
-				name := key.(string)
-				limiter := value.(*limiter.SharedLimiter)
-				activeRate := (float64(limiter.GetActiveRate()) / 1024.0 / 1024.0) * 8.0
-				log.Printf("MONITOR: Current rate for bridge %s - %.2f mbps",
-					name, activeRate)
-				return true
-			})
+			// cm.limiterMap.Range(func(key, value interface{}) bool {
+			// 	name := key.(string)
+			// 	limiter := value.(*limiter.SharedLimiter)
+			// 	activeRate := (float64(limiter.GetActiveRate()) / 1024.0 / 1024.0) * 8.0
+			// 	log.Printf("MONITOR: Current rate for bridge %s - %.2f mbps",
+			// 		name, activeRate)
+			// 	return true
+			// })
 		}
 	}()
 }

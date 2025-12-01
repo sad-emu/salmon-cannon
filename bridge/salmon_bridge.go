@@ -45,7 +45,7 @@ func NewSalmonBridge(name string, address string, port int, tlscfg *tls.Config,
 // =========================================================
 
 func (s *SalmonBridge) StatusCheck() {
-	stream, cleanup, err := s.sq.OpenStream()
+	stream, cleanup, err, qconn := s.sq.OpenStream()
 	if err != nil {
 		log.Printf("NEAR: Bridge %s status check connect error: %v", s.BridgeName, err)
 		return
@@ -57,6 +57,7 @@ func (s *SalmonBridge) StatusCheck() {
 	written, err := stream.Write([]byte{STATUS_HEADER})
 	if err != nil || written != 1 {
 		log.Printf("NEAR: Bridge %s status check write error: %v", s.BridgeName, err)
+		s.sq.CloseConnection(qconn)
 		return
 	}
 
@@ -66,6 +67,7 @@ func (s *SalmonBridge) StatusCheck() {
 	n, err := stream.Read(buf)
 	if err != nil || n != 1 || buf[0] != STATUS_ACK {
 		log.Printf("NEAR: Bridge %s status check read error: %v", s.BridgeName, err)
+		s.sq.CloseConnection(qconn)
 		return
 	}
 
@@ -76,6 +78,7 @@ func (s *SalmonBridge) StatusCheck() {
 	written, err = stream.Write([]byte{STATUS_ACK})
 	if err != nil || written != 1 {
 		log.Printf("NEAR: Bridge %s status check final write error: %v", s.BridgeName, err)
+		s.sq.CloseConnection(qconn)
 		return
 	}
 
@@ -87,7 +90,7 @@ func (s *SalmonBridge) StatusCheck() {
 
 func (s *SalmonBridge) tryConnect() (net.Conn, net.Conn, *quic.Stream, func(), error) {
 	// Open the stream first
-	stream, cleanup, err := s.sq.OpenStream()
+	stream, cleanup, err, _ := s.sq.OpenStream()
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -199,6 +202,7 @@ func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 		// log.Printf("FAR: Bridge %s received status ping", s.BridgeName)
 		s.handleStatusPing(stream)
 		stream.Close()
+		status.GlobalConnMonitorRef.RemoveStream(s.BridgeName)
 		// log.Printf("FAR: Bridge %s closed stream for status ping", s.BridgeName)
 		return
 	}
@@ -258,6 +262,7 @@ func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 
 	// 4) Pipe bytes both directions.
 	BidiPipe(stream, dst, s.sl, writeIv, writeKey, readIv, readKey)
+	status.GlobalConnMonitorRef.RemoveStream(s.BridgeName)
 }
 
 func (s *SalmonBridge) NewFarListen() error {

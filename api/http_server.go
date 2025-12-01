@@ -87,6 +87,7 @@ type bridgeDTO struct {
 // statusDTO is the JSON shape returned for bandwidth status
 type statusDTO struct {
 	BridgeName           string  `json:"bridge_name"`
+	ActiveStreams        int64   `json:"active_streams"`
 	MaxRateBitsPerSec    int64   `json:"max_rate_bps"`
 	ActiveRateBitsPerSec float64 `json:"active_rate_bps"`
 	LastAliveMin         int64   `json:"last_alive_min"`
@@ -142,6 +143,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 		lastPingMs := status.GlobalConnMonitorRef.GetPing(b.Name)
 		alive := status.GlobalConnMonitorRef.GetStatus(b.Name)
+		streamCount := status.GlobalConnMonitorRef.GetStreamCount(b.Name)
 
 		list = append(list, statusDTO{
 			BridgeName:           b.Name,
@@ -150,6 +152,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			Alive:                alive,
 			LastAliveMin:         lastAliveMs,
 			LastPingMs:           lastPingMs,
+			ActiveStreams:        streamCount,
 		})
 	}
 
