@@ -93,6 +93,7 @@ type statusDTO struct {
 	LastAliveMin         int64   `json:"last_alive_min"`
 	LastPingMs           int64   `json:"last_ping_ms"`
 	Alive                bool    `json:"alive"`
+	TransferredBytes     uint64  `json:"transferred_bytes"`
 }
 
 func (s *Server) handleBridges(w http.ResponseWriter, r *http.Request) {
@@ -130,10 +131,12 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 		// Try to get the active rate from the registered limiter
 		activeRateBps := 0.0
+		transferredBytes := uint64(0)
 		if limiterInterface, ok := status.GlobalConnMonitorRef.GetLimiter(b.Name); ok {
 			if limiter, ok := limiterInterface.(*limiter.SharedLimiter); ok {
 				// GetActiveRate returns bytes per second, convert to bits per second
 				activeRateBps = float64(limiter.GetActiveRate()) * 8.0
+				transferredBytes = limiter.GetBytesTransferred()
 			}
 		}
 
@@ -153,6 +156,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			LastAliveMin:         lastAliveMs,
 			LastPingMs:           lastPingMs,
 			ActiveStreams:        streamCount,
+			TransferredBytes:     transferredBytes,
 		})
 	}
 
