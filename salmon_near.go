@@ -1,12 +1,12 @@
 package main
 
 import (
-	"crypto/tls"
 	"io"
 	"log"
 	"net"
 	"salmoncannon/bridge"
 	"salmoncannon/config"
+	"salmoncannon/connections"
 	"salmoncannon/limiter"
 	"salmoncannon/socks"
 	"salmoncannon/status"
@@ -15,8 +15,6 @@ import (
 	"time"
 
 	"slices"
-
-	quic "github.com/quic-go/quic-go"
 )
 
 func initNear(cfg *config.SalmonBridgeConfig, near *SalmonNear) {
@@ -119,28 +117,18 @@ func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
 	bridgeAddress := config.FarIp
 	bridgePort := config.FarPort
 
-	qcfg := &quic.Config{
-		MaxIdleTimeout:                 config.IdleTimeout.Duration(),
-		InitialStreamReceiveWindow:     uint64(1024 * 1024 * 50),
-		MaxStreamReceiveWindow:         uint64(config.MaxRecieveBufferSize),
-		InitialConnectionReceiveWindow: uint64(1024 * 1024 * 25),
-		MaxConnectionReceiveWindow:     uint64(config.MaxRecieveBufferSize),
-		InitialPacketSize:              uint16(config.InitialPacketSize),
-		MaxIncomingStreams:             socks.MaxConnections,
-		MaxIncomingUniStreams:          socks.MaxConnections,
-		EnableDatagrams:                false,
+	netcfg := connections.BridgeNetConfig{
+		IdleTimeout:      config.IdleTimeout.Duration(),
+		StreamRecvBuffer: int(config.MaxRecieveBufferSize),
+		PacketSize:       config.InitialPacketSize,
+		MaxStreams:       socks.MaxConnections,
 	}
 
 	sl := limiter.NewSharedLimiter(int64(config.TotalBandwidthLimit))
 	status.GlobalConnMonitorRef.RegisterLimiter(config.Name, sl)
 
-	tlscfg := &tls.Config{
-		InsecureSkipVerify: true, // for prototype
-		NextProtos:         []string{config.Name},
-	}
-
 	salmonBridge := bridge.NewSalmonBridge(config.Name, bridgeAddress, bridgePort,
-		tlscfg, qcfg, sl, config.Connect, config.InterfaceName, config.AllowedOutAddresses, config.SharedSecret)
+		netcfg, sl, config.Connect, config.InterfaceName, config.AllowedOutAddresses, config.SharedSecret)
 
 	near := &SalmonNear{
 		currentBridge: salmonBridge,
@@ -256,7 +244,7 @@ func (n *SalmonNear) HandleHTTP(conn net.Conn) {
 	// simplistic: if more bytes were read beyond first line, keep them in a buffer to forward after connect
 	// For CONNECT, there should be only headers and then raw tunnel.
 
-	// Open QUIC stream to far
+	// Open bridge stream to far
 	// parse port
 	port, err := net.LookupPort("tcp", portStr)
 	if err != nil {

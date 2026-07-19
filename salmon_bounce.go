@@ -11,7 +11,7 @@ import (
 )
 
 // SalmonBounce is a user-space UDP relay that forwards packets based on a route map.
-// It maintains session state to support bidirectional forwarding without terminating QUIC.
+// It maintains session state to support bidirectional forwarding without terminating the tunnel.
 type SalmonBounce struct {
 	name        string
 	listenAddr  string

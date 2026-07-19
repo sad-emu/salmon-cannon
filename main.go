@@ -48,7 +48,7 @@ func main() {
 		log.Printf("Loaded %d salmon bridges", len(cannonConfig.Bridges))
 	}
 
-	// Setup QUIC parameters
+	// Setup connection pool parameters
 	if cannonConfig.QuicConfig != nil {
 		if cannonConfig.QuicConfig.MaxConnectionsPerBridge > 0 {
 			connections.MaxConnectionsPerBridge = int(cannonConfig.QuicConfig.MaxConnectionsPerBridge)

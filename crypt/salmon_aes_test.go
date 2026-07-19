@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// mockNetConn implements quic.Stream for testing
+// mockNetConn implements a net.Conn-like stream for testing
 type mockNetConn struct {
 	readBuf   *bytes.Buffer
 	writeBuf  *bytes.Buffer
@@ -85,7 +85,7 @@ func TestEncryptBytesWithSecret(t *testing.T) {
 	}
 }
 
-func TestAesWrapQuicStream(t *testing.T) {
+func TestAesWrapConn(t *testing.T) {
 	mock := newMockNetConn()
 	readIv := make([]byte, 16)
 	writeIv := make([]byte, 16)
@@ -98,7 +98,7 @@ func TestAesWrapQuicStream(t *testing.T) {
 
 	wrapped := AesWrapConn(mock, readIv, readKey, writeIv, writeKey)
 	if wrapped == nil {
-		t.Fatal("AesWrapQuicStream returned nil")
+		t.Fatal("AesWrapConn returned nil")
 	}
 	if wrapped.Conn == nil {
 		t.Error("Wrapped connection is nil")

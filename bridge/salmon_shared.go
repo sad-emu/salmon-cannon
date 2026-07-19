@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	quic "github.com/quic-go/quic-go"
+	"github.com/sad-emu/anadromous"
 )
 
 const STATUS_HEADER = 0x01
@@ -133,7 +133,7 @@ func ReadTargetHeaderEnc(r io.Reader, sharedSecret string) (string, []byte, []by
 // - When client->stream copy finishes, we FIN the stream write side (stream.Close()).
 // - When stream->client copy finishes, we close the TCP socket.
 // - On errors, we best-effort cancel the other direction to unblock.
-func BidiPipe(stream *quic.Stream, tcp net.Conn,
+func BidiPipe(stream *anadromous.Stream, tcp net.Conn,
 	limiter *limiter.SharedLimiter, readIv []byte, readKey []byte, writeIv []byte, writeKey []byte) {
 	var wg sync.WaitGroup
 	wg.Add(2)

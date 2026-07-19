@@ -2,62 +2,19 @@ package connections
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/tls"
-	"crypto/x509"
-	"encoding/pem"
-	"math/big"
 	"net"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/quic-go/quic-go"
+	"github.com/sad-emu/anadromous"
 )
 
-// generateTLSConfig creates a self-signed certificate for testing
-func generateTLSConfig() (*tls.Config, error) {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return nil, err
-	}
-
-	template := x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		NotBefore:    time.Now(),
-		NotAfter:     time.Now().Add(time.Hour),
-	}
-
-	publicKey := key.Public()
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, publicKey, key)
-	if err != nil {
-		return nil, err
-	}
-
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-
-	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
-	if err != nil {
-		return nil, err
-	}
-
-	return &tls.Config{
-		Certificates: []tls.Certificate{tlsCert},
-		NextProtos:   []string{"quic-test"},
-		ClientAuth:   tls.NoClientCert,
-	}, nil
-}
-
-func TestNewSalmonQuic(t *testing.T) {
-	tlscfg := &tls.Config{}
-	qcfg := &quic.Config{}
-
-	sq := NewSalmonQuic(8080, "127.0.0.1", "test-bridge", tlscfg, qcfg, "")
+func TestNewSalmonAnadromous(t *testing.T) {
+	sq := NewSalmonAnadromous(8080, "127.0.0.1", "test-bridge", BridgeNetConfig{}, "")
 
 	if sq == nil {
-		t.Fatal("NewSalmonQuic returned nil")
+		t.Fatal("NewSalmonAnadromous returned nil")
 	}
 
 	if sq.BridgePort != 8080 {
@@ -77,10 +34,8 @@ func TestNewSalmonQuic(t *testing.T) {
 	}
 }
 
-func TestNewSalmonQuicWithInterface(t *testing.T) {
-	tlscfg := &tls.Config{}
-	qcfg := &quic.Config{}
-	sq := NewSalmonQuic(8080, "127.0.0.1", "test-bridge", tlscfg, qcfg, "eth0")
+func TestNewSalmonAnadromousWithInterface(t *testing.T) {
+	sq := NewSalmonAnadromous(8080, "127.0.0.1", "test-bridge", BridgeNetConfig{}, "eth0")
 
 	if sq.interfaceName != "eth0" {
 		t.Errorf("Expected interfaceName eth0, got %s", sq.interfaceName)
@@ -132,15 +87,8 @@ func TestShouldBlockHost(t *testing.T) {
 }
 
 func TestConnectionToInvalidAddress(t *testing.T) {
-	tlscfg, err := generateTLSConfig()
-	if err != nil {
-		t.Fatalf("Failed to generate TLS config: %v", err)
-	}
-
-	qcfg := &quic.Config{
-		MaxIdleTimeout: 2 * time.Second,
-	}
-	sq := NewSalmonQuic(1, "invalid-host-name-that-does-not-exist", "test-bridge", tlscfg, qcfg, "")
+	netcfg := BridgeNetConfig{IdleTimeout: 2 * time.Second}
+	sq := NewSalmonAnadromous(1, "invalid-host-name-that-does-not-exist", "test-bridge", netcfg, "")
 
 	// Try to open a stream, which will attempt to create a connection
 	_, cleanup, err, _ := sq.OpenStream()
@@ -162,16 +110,9 @@ func TestConnectionToInvalidAddress(t *testing.T) {
 }
 
 func TestConnectionCreationFailure(t *testing.T) {
-	tlscfg, err := generateTLSConfig()
-	if err != nil {
-		t.Fatalf("Failed to generate TLS config: %v", err)
-	}
-
-	qcfg := &quic.Config{
-		MaxIdleTimeout: 2 * time.Second,
-	}
+	netcfg := BridgeNetConfig{IdleTimeout: 2 * time.Second}
 	// Use invalid address to test error handling
-	sq := NewSalmonQuic(1, "invalid-host", "test-bridge", tlscfg, qcfg, "")
+	sq := NewSalmonAnadromous(1, "invalid-host", "test-bridge", netcfg, "")
 
 	// Attempt to open stream should fail when trying to create connection
 	_, cleanup, err, _ := sq.OpenStream()
@@ -184,16 +125,8 @@ func TestConnectionCreationFailure(t *testing.T) {
 }
 
 func TestOpenStreamWithoutConnection(t *testing.T) {
-	tlscfg, err := generateTLSConfig()
-	if err != nil {
-		t.Fatalf("Failed to generate TLS config: %v", err)
-	}
-
-	qcfg := &quic.Config{
-		MaxIdleTimeout: 2 * time.Second,
-	}
-
-	sq := NewSalmonQuic(1, "invalid-host", "test-bridge", tlscfg, qcfg, "")
+	netcfg := BridgeNetConfig{IdleTimeout: 2 * time.Second}
+	sq := NewSalmonAnadromous(1, "invalid-host", "test-bridge", netcfg, "")
 
 	_, cleanup, err, _ := sq.OpenStream()
 	if err == nil {
@@ -209,25 +142,15 @@ func TestOpenStreamIntegration(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	serverTLSConfig, err := generateTLSConfig()
-	if err != nil {
-		t.Fatalf("Failed to generate server TLS config: %v", err)
-	}
-
-	clientTLSConfig := &tls.Config{
-		InsecureSkipVerify: true,
-		NextProtos:         []string{"quic-test"},
-	}
-
-	qcfg := &quic.Config{
-		MaxIdleTimeout:     2 * time.Second,
-		MaxIncomingStreams: 100,
+	netcfg := BridgeNetConfig{
+		IdleTimeout: 2 * time.Second,
+		MaxStreams:  100,
 	}
 
 	// Start server
-	listener, err := quic.ListenAddr("127.0.0.1:0", serverTLSConfig, qcfg)
+	listener, err := anadromous.Listen("127.0.0.1:0", netcfg.options("")...)
 	if err != nil {
-		t.Fatalf("Failed to start QUIC listener: %v", err)
+		t.Fatalf("Failed to start anadromous listener: %v", err)
 	}
 	defer listener.Close()
 
@@ -264,7 +187,7 @@ func TestOpenStreamIntegration(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Create client
-	sq := NewSalmonQuic(port, "127.0.0.1", "test-bridge", clientTLSConfig, qcfg, "")
+	sq := NewSalmonAnadromous(port, "127.0.0.1", "test-bridge", netcfg, "")
 
 	// Open stream
 	stream, cleanup, err, _ := sq.OpenStream()
@@ -275,7 +198,7 @@ func TestOpenStreamIntegration(t *testing.T) {
 	defer stream.Close()
 
 	// Test writing and reading
-	testData := []byte("hello quic")
+	testData := []byte("hello anadromous")
 	_, err = stream.Write(testData)
 	if err != nil {
 		t.Fatalf("Failed to write to stream: %v", err)
@@ -303,25 +226,15 @@ func TestConcurrentStreamOpening(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	serverTLSConfig, err := generateTLSConfig()
-	if err != nil {
-		t.Fatalf("Failed to generate server TLS config: %v", err)
-	}
-
-	clientTLSConfig := &tls.Config{
-		InsecureSkipVerify: true,
-		NextProtos:         []string{"quic-test"},
-	}
-
-	qcfg := &quic.Config{
-		MaxIdleTimeout:     2 * time.Second,
-		MaxIncomingStreams: 100,
+	netcfg := BridgeNetConfig{
+		IdleTimeout: 2 * time.Second,
+		MaxStreams:  100,
 	}
 
 	// Start server
-	listener, err := quic.ListenAddr("127.0.0.1:0", serverTLSConfig, qcfg)
+	listener, err := anadromous.Listen("127.0.0.1:0", netcfg.options("")...)
 	if err != nil {
-		t.Fatalf("Failed to start QUIC listener: %v", err)
+		t.Fatalf("Failed to start anadromous listener: %v", err)
 	}
 	defer listener.Close()
 
@@ -337,27 +250,24 @@ func TestConcurrentStreamOpening(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseWithError(0, "test done")
-
-		for i := 0; i < 10; i++ {
-			go func() {
-				stream, err := conn.AcceptStream(context.Background())
-				if err != nil {
-					return
-				}
-				defer stream.Close()
+		for {
+			stream, err := conn.AcceptStream(context.Background())
+			if err != nil {
+				return
+			}
+			go func(s *anadromous.Stream) {
+				defer s.Close()
 				buf := make([]byte, 100)
-				n, _ := stream.Read(buf)
-				stream.Write(buf[:n])
-			}()
+				n, _ := s.Read(buf)
+				s.Write(buf[:n])
+			}(stream)
 		}
-		time.Sleep(100 * time.Millisecond)
 	}()
 
 	time.Sleep(100 * time.Millisecond)
 
 	// Create client
-	sq := NewSalmonQuic(port, "127.0.0.1", "test-bridge", clientTLSConfig, qcfg, "")
+	sq := NewSalmonAnadromous(port, "127.0.0.1", "test-bridge", netcfg, "")
 
 	// Open multiple streams concurrently
 	var wg sync.WaitGroup
@@ -380,6 +290,7 @@ func TestConcurrentStreamOpening(t *testing.T) {
 			testData := []byte("test")
 			stream.Write(testData)
 			buf := make([]byte, 100)
+			stream.SetReadDeadline(time.Now().Add(2 * time.Second))
 			stream.Read(buf)
 		}(i)
 	}
@@ -403,16 +314,8 @@ func TestConcurrentStreamOpening(t *testing.T) {
 }
 
 func TestConnectionPoolFailure(t *testing.T) {
-	tlscfg, err := generateTLSConfig()
-	if err != nil {
-		t.Fatalf("Failed to generate TLS config: %v", err)
-	}
-
-	qcfg := &quic.Config{
-		MaxIdleTimeout: 2 * time.Second,
-	}
-
-	sq := NewSalmonQuic(1, "invalid-host", "test-bridge", tlscfg, qcfg, "")
+	netcfg := BridgeNetConfig{IdleTimeout: 2 * time.Second}
+	sq := NewSalmonAnadromous(1, "invalid-host", "test-bridge", netcfg, "")
 
 	// Try to open stream to invalid host (should fail)
 	_, cleanup, err, _ := sq.OpenStream()
@@ -434,15 +337,8 @@ func TestConnectionPoolFailure(t *testing.T) {
 }
 
 func TestMutexSafety(t *testing.T) {
-	tlscfg, err := generateTLSConfig()
-	if err != nil {
-		t.Fatalf("Failed to generate TLS config: %v", err)
-	}
-
-	qcfg := &quic.Config{
-		MaxIdleTimeout: 2 * time.Second,
-	}
-	sq := NewSalmonQuic(1, "invalid-host", "test-bridge", tlscfg, qcfg, "")
+	netcfg := BridgeNetConfig{IdleTimeout: 2 * time.Second}
+	sq := NewSalmonAnadromous(1, "invalid-host", "test-bridge", netcfg, "")
 
 	// Try to access connection pool concurrently
 	var wg sync.WaitGroup
@@ -461,14 +357,20 @@ func TestMutexSafety(t *testing.T) {
 	// Test passes if no race condition detected
 }
 
-func TestListenPacketOnInterfaceInvalidInterface(t *testing.T) {
-	// This test will fail on non-Linux or if the interface doesn't exist
-	_, err := listenPacketOnInterface("udp", "nonexistent-interface-12345")
+func TestOpenStreamInvalidInterface(t *testing.T) {
+	// Binding to a non-existent interface should fail when dialing
+	netcfg := BridgeNetConfig{IdleTimeout: 2 * time.Second}
+	sq := NewSalmonAnadromous(1, "127.0.0.1", "test-bridge", netcfg, "nonexistent-interface-12345")
+
+	_, cleanup, err, _ := sq.OpenStream()
 	if err == nil {
+		if cleanup != nil {
+			cleanup()
+		}
 		t.Error("Expected error when binding to non-existent interface")
 	}
 
-	if err != nil && len(err.Error()) > 0 {
+	if err != nil {
 		// Just check that we got an error, the exact message may vary by platform
 		t.Logf("Got expected error: %v", err)
 	}
@@ -479,28 +381,18 @@ func TestConnectionPooling(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	serverTLSConfig, err := generateTLSConfig()
-	if err != nil {
-		t.Fatalf("Failed to generate server TLS config: %v", err)
-	}
-
-	clientTLSConfig := &tls.Config{
-		InsecureSkipVerify: true,
-		NextProtos:         []string{"quic-test"},
-	}
-
-	qcfg := &quic.Config{
-		MaxIdleTimeout:     5 * time.Second,
-		MaxIncomingStreams: 100,
+	netcfg := BridgeNetConfig{
+		IdleTimeout: 5 * time.Second,
+		MaxStreams:  100,
 	}
 
 	MaxStreamsPerConnection = 200
 	MaxConnectionsPerBridge = 1
 
 	// Start server
-	listener, err := quic.ListenAddr("127.0.0.1:0", serverTLSConfig, qcfg)
+	listener, err := anadromous.Listen("127.0.0.1:0", netcfg.options("")...)
 	if err != nil {
-		t.Fatalf("Failed to start QUIC listener: %v", err)
+		t.Fatalf("Failed to start anadromous listener: %v", err)
 	}
 	defer listener.Close()
 
@@ -517,14 +409,14 @@ func TestConnectionPooling(t *testing.T) {
 			if err != nil {
 				return
 			}
-			go func(c *quic.Conn) {
+			go func(c *anadromous.Connection) {
 				defer c.CloseWithError(0, "test done")
 				for {
 					stream, err := c.AcceptStream(context.Background())
 					if err != nil {
 						return
 					}
-					go func(s *quic.Stream) {
+					go func(s *anadromous.Stream) {
 						defer s.Close()
 						buf := make([]byte, 100)
 						n, _ := s.Read(buf)
@@ -538,7 +430,7 @@ func TestConnectionPooling(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Create client
-	sq := NewSalmonQuic(port, "127.0.0.1", "test-bridge", clientTLSConfig, qcfg, "")
+	sq := NewSalmonAnadromous(port, "127.0.0.1", "test-bridge", netcfg, "")
 
 	// Open multiple streams to trigger connection pooling
 	var wg sync.WaitGroup
@@ -580,30 +472,20 @@ func TestMaxConcurrentStreamOpeningFails(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	serverTLSConfig, err := generateTLSConfig()
-	if err != nil {
-		t.Fatalf("Failed to generate server TLS config: %v", err)
-	}
-
-	clientTLSConfig := &tls.Config{
-		InsecureSkipVerify: true,
-		NextProtos:         []string{"quic-test"},
-	}
-
-	var streamsToTest int64 = 100
+	var streamsToTest int = 100
 
 	MaxStreamsPerConnection = 10
 	MaxConnectionsPerBridge = 1
 
-	qcfg := &quic.Config{
-		MaxIdleTimeout:     1 * time.Second,
-		MaxIncomingStreams: streamsToTest,
+	netcfg := BridgeNetConfig{
+		IdleTimeout: 1 * time.Second,
+		MaxStreams:  streamsToTest,
 	}
 
 	// Start server
-	listener, err := quic.ListenAddr("127.0.0.1:0", serverTLSConfig, qcfg)
+	listener, err := anadromous.Listen("127.0.0.1:0", netcfg.options("")...)
 	if err != nil {
-		t.Fatalf("Failed to start QUIC listener: %v", err)
+		t.Fatalf("Failed to start anadromous listener: %v", err)
 	}
 	defer listener.Close()
 
@@ -619,34 +501,31 @@ func TestMaxConcurrentStreamOpeningFails(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseWithError(0, "test done")
-
-		for i := 0; i < 10; i++ {
-			go func() {
-				stream, err := conn.AcceptStream(context.Background())
-				if err != nil {
-					return
-				}
-				defer stream.Close()
+		for {
+			stream, err := conn.AcceptStream(context.Background())
+			if err != nil {
+				return
+			}
+			go func(s *anadromous.Stream) {
+				defer s.Close()
 				buf := make([]byte, 100)
-				n, _ := stream.Read(buf)
-				stream.Write(buf[:n])
-			}()
+				n, _ := s.Read(buf)
+				s.Write(buf[:n])
+			}(stream)
 		}
-		time.Sleep(100 * time.Millisecond)
 	}()
 
 	time.Sleep(100 * time.Millisecond)
 
 	// Create client
-	sq := NewSalmonQuic(port, "127.0.0.1", "test-bridge", clientTLSConfig, qcfg, "")
+	sq := NewSalmonAnadromous(port, "127.0.0.1", "test-bridge", netcfg, "")
 
 	// Open multiple streams concurrently
 	var wg sync.WaitGroup
 	numStreams := streamsToTest
 	errors := make(chan error, numStreams)
 
-	for i := 0; i < int(numStreams); i++ {
+	for i := 0; i < numStreams; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -662,6 +541,7 @@ func TestMaxConcurrentStreamOpeningFails(t *testing.T) {
 			testData := []byte("test")
 			stream.Write(testData)
 			buf := make([]byte, 100)
+			stream.SetReadDeadline(time.Now().Add(2 * time.Second))
 			stream.Read(buf)
 		}(i)
 	}
@@ -689,30 +569,20 @@ func TestMaxConcurrentStreamOpening(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	serverTLSConfig, err := generateTLSConfig()
-	if err != nil {
-		t.Fatalf("Failed to generate server TLS config: %v", err)
-	}
-
-	clientTLSConfig := &tls.Config{
-		InsecureSkipVerify: true,
-		NextProtos:         []string{"quic-test"},
-	}
-
-	var streamsToTest int64 = 100
+	var streamsToTest int = 100
 
 	MaxStreamsPerConnection = 50
 	MaxConnectionsPerBridge = 2
 
-	qcfg := &quic.Config{
-		MaxIdleTimeout:     1 * time.Second,
-		MaxIncomingStreams: streamsToTest,
+	netcfg := BridgeNetConfig{
+		IdleTimeout: 1 * time.Second,
+		MaxStreams:  streamsToTest,
 	}
 
 	// Start server
-	listener, err := quic.ListenAddr("127.0.0.1:0", serverTLSConfig, qcfg)
+	listener, err := anadromous.Listen("127.0.0.1:0", netcfg.options("")...)
 	if err != nil {
-		t.Fatalf("Failed to start QUIC listener: %v", err)
+		t.Fatalf("Failed to start anadromous listener: %v", err)
 	}
 	defer listener.Close()
 
@@ -724,38 +594,40 @@ func TestMaxConcurrentStreamOpening(t *testing.T) {
 
 	// Server goroutine that handles multiple streams
 	go func() {
-		conn, err := listener.Accept(context.Background())
-		if err != nil {
-			return
-		}
-		defer conn.CloseWithError(0, "test done")
-
-		for i := 0; i < 10; i++ {
-			go func() {
-				stream, err := conn.AcceptStream(context.Background())
-				if err != nil {
-					return
+		for {
+			conn, err := listener.Accept(context.Background())
+			if err != nil {
+				return
+			}
+			go func(c *anadromous.Connection) {
+				defer c.CloseWithError(0, "test done")
+				for {
+					stream, err := c.AcceptStream(context.Background())
+					if err != nil {
+						return
+					}
+					go func(s *anadromous.Stream) {
+						defer s.Close()
+						buf := make([]byte, 100)
+						n, _ := s.Read(buf)
+						s.Write(buf[:n])
+					}(stream)
 				}
-				defer stream.Close()
-				buf := make([]byte, 100)
-				n, _ := stream.Read(buf)
-				stream.Write(buf[:n])
-			}()
+			}(conn)
 		}
-		time.Sleep(100 * time.Millisecond)
 	}()
 
 	time.Sleep(100 * time.Millisecond)
 
 	// Create client
-	sq := NewSalmonQuic(port, "127.0.0.1", "test-bridge", clientTLSConfig, qcfg, "")
+	sq := NewSalmonAnadromous(port, "127.0.0.1", "test-bridge", netcfg, "")
 
 	// Open multiple streams concurrently
 	var wg sync.WaitGroup
 	numStreams := streamsToTest
 	errors := make(chan error, numStreams)
 
-	for i := 0; i < int(numStreams); i++ {
+	for i := 0; i < numStreams; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -771,6 +643,7 @@ func TestMaxConcurrentStreamOpening(t *testing.T) {
 			testData := []byte("test")
 			stream.Write(testData)
 			buf := make([]byte, 100)
+			stream.SetReadDeadline(time.Now().Add(2 * time.Second))
 			stream.Read(buf)
 		}(i)
 	}
@@ -793,38 +666,19 @@ func TestMaxConcurrentStreamOpening(t *testing.T) {
 	}
 }
 
-// TestStaleConnectionNotCleanedUpWithMaxBridges1 tests the production issue where:
-// - MaxConnectionsPerBridge = 1 (only one connection allowed in the pool)
-// - Far side goes down and comes back up (server restart scenario)
-// - Near side keeps trying to use the old stale connection
-// - The stale connection is never cleaned up, causing continuous failures
-//
-// Expected behavior: When a connection becomes stale/dead, it should be:
-// 1. Detected (e.g., via OpenStreamSync failure or context cancellation)
-// 2. Removed from the connection pool
-// 3. Replaced with a new connection on the next OpenStream() attempt
-//
-// Actual behavior (BUG): The stale connection remains in the pool, blocking
-// new connections from being created because MaxConnectionsPerBridge=1 is reached.
-// All subsequent OpenStream() calls fail until the idle timeout expires.
-func TestStaleConnectionNotCleanedUpWithMaxBridges1(t *testing.T) {
+// TestStaleConnectionRecoveryWithMaxBridges1 tests the production scenario where:
+//   - MaxConnectionsPerBridge = 1 (only one connection allowed in the pool)
+//   - Far side goes down and comes back up (server restart scenario)
+//   - Near side must detect the stale connection, drop it from the pool,
+//     and establish a fresh connection to the restarted far side.
+func TestStaleConnectionRecoveryWithMaxBridges1(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	serverTLSConfig, err := generateTLSConfig()
-	if err != nil {
-		t.Fatalf("Failed to generate server TLS config: %v", err)
-	}
-
-	clientTLSConfig := &tls.Config{
-		InsecureSkipVerify: true,
-		NextProtos:         []string{"quic-test"},
-	}
-
-	qcfg := &quic.Config{
-		MaxIdleTimeout:     2 * time.Second,
-		MaxIncomingStreams: 10,
+	netcfg := BridgeNetConfig{
+		IdleTimeout: 2 * time.Second,
+		MaxStreams:  10,
 	}
 
 	// Set to 1 connection max (production scenario)
@@ -832,9 +686,9 @@ func TestStaleConnectionNotCleanedUpWithMaxBridges1(t *testing.T) {
 	MaxConnectionsPerBridge = 1
 
 	// Start first server
-	listener1, err := quic.ListenAddr("127.0.0.1:0", serverTLSConfig, qcfg)
+	listener1, err := anadromous.Listen("127.0.0.1:0", netcfg.options("")...)
 	if err != nil {
-		t.Fatalf("Failed to start QUIC listener: %v", err)
+		t.Fatalf("Failed to start anadromous listener: %v", err)
 	}
 
 	serverAddr := listener1.Addr().String()
@@ -860,7 +714,7 @@ func TestStaleConnectionNotCleanedUpWithMaxBridges1(t *testing.T) {
 			if err != nil {
 				return
 			}
-			go func(s *quic.Stream) {
+			go func(s *anadromous.Stream) {
 				defer s.Close()
 				buf := make([]byte, 100)
 				n, _ := s.Read(buf)
@@ -872,7 +726,7 @@ func TestStaleConnectionNotCleanedUpWithMaxBridges1(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Create client
-	sq := NewSalmonQuic(port, "127.0.0.1", "test-bridge", clientTLSConfig, qcfg, "")
+	sq := NewSalmonAnadromous(port, "127.0.0.1", "test-bridge", netcfg, "")
 
 	// Successfully open a stream to establish connection
 	stream1, cleanup1, err, _ := sq.OpenStream()
@@ -922,13 +776,13 @@ func TestStaleConnectionNotCleanedUpWithMaxBridges1(t *testing.T) {
 		t.Fatal("Server didn't shut down in time")
 	}
 
-	// Wait a bit to ensure the connection is dead
+	// Wait long enough for the client idle timeout to kill the connection
 	time.Sleep(500 * time.Millisecond)
 
 	// Start a new server on the same port (simulating far side coming back)
-	listener2, err := quic.ListenAddr(serverAddr, serverTLSConfig, qcfg)
+	listener2, err := anadromous.Listen(serverAddr, netcfg.options("")...)
 	if err != nil {
-		t.Fatalf("Failed to start second QUIC listener: %v", err)
+		t.Fatalf("Failed to start second anadromous listener: %v", err)
 	}
 	defer listener2.Close()
 
@@ -947,7 +801,7 @@ func TestStaleConnectionNotCleanedUpWithMaxBridges1(t *testing.T) {
 			if err != nil {
 				return
 			}
-			go func(s *quic.Stream) {
+			go func(s *anadromous.Stream) {
 				defer s.Close()
 				buf := make([]byte, 100)
 				n, _ := s.Read(buf)
@@ -959,19 +813,20 @@ func TestStaleConnectionNotCleanedUpWithMaxBridges1(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	t.Log("Second server started")
 
-	// The old connection should still be in the pool
+	// The old connection may still be in the pool
 	sq.connectionsMu.RLock()
 	oldConnCount := len(sq.connections)
 	sq.connectionsMu.RUnlock()
 
 	t.Logf("Connections in pool after server restart: %d", oldConnCount)
 
-	// Try to open a new stream - this should fail because it tries to use the stale connection
-	// This is the bug: the near side keeps trying the old dead connection
+	// Try to open a new stream - the first attempt may fail if it picks the
+	// stale connection, but that failure must evict it from the pool so the
+	// retry can dial fresh.
 	stream2, cleanup2, err, _ := sq.OpenStream()
 
 	if err != nil {
-		t.Logf("OpenStream failed as expected due to stale connection: %v", err)
+		t.Logf("OpenStream failed on stale connection, retrying: %v", err)
 		stream2, cleanup2, err, _ = sq.OpenStream()
 	}
 
@@ -995,22 +850,8 @@ func TestStaleConnectionNotCleanedUpWithMaxBridges1(t *testing.T) {
 
 		stream2.Close()
 		cleanup2()
-
-		// The issue is that the stale connection is still in the pool
-		// and we can't establish new connections because MaxConnectionsPerBridge = 1
-		//t.Error("BUG REPRODUCED: Stream opened using stale connection, but communication fails")
 	} else {
-		t.Logf("OpenStream failed (also indicates the bug): %v", err)
+		t.Logf("OpenStream failed after retry: %v", err)
 		t.Error("BUG REPRODUCED: Cannot open new stream because stale connection is blocking the pool")
 	}
-
-	// Verify the stale connection is still in the pool
-	// sq.connectionsMu.RLock()
-	// finalConnCount := len(sq.connections)
-	// sq.connectionsMu.RUnlock()
-
-	// if finalConnCount == 1 {
-	// 	t.Log("ISSUE CONFIRMED: Stale connection is still in the pool, preventing new connections")
-	// 	t.Log("Expected behavior: The stale/dead connection should be detected and removed from the pool")
-	// }
 }

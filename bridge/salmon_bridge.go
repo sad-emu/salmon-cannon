@@ -2,7 +2,6 @@ package bridge
 
 import (
 	"crypto/rand"
-	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
@@ -12,12 +11,12 @@ import (
 	"slices"
 	"time"
 
-	quic "github.com/quic-go/quic-go"
+	"github.com/sad-emu/anadromous"
 )
 
 type SalmonBridge struct {
 	BridgeName string
-	sq         *connections.SalmonQuic // Handler for QUIC connections
+	sq         *connections.SalmonAnadromous // Handler for anadromous connections
 
 	sl                  *limiter.SharedLimiter
 	connector           bool
@@ -26,10 +25,10 @@ type SalmonBridge struct {
 	sharedSecret string
 }
 
-func NewSalmonBridge(name string, address string, port int, tlscfg *tls.Config,
-	qcfg *quic.Config, sl *limiter.SharedLimiter, connector bool, interfaceName string,
+func NewSalmonBridge(name string, address string, port int, netcfg connections.BridgeNetConfig,
+	sl *limiter.SharedLimiter, connector bool, interfaceName string,
 	allowedOutAddresses []string, sharedSecret string) *SalmonBridge {
-	sq := connections.NewSalmonQuic(port, address, name, tlscfg, qcfg, interfaceName)
+	sq := connections.NewSalmonAnadromous(port, address, name, netcfg, interfaceName)
 	return &SalmonBridge{
 		BridgeName:          name,
 		sl:                  sl,
@@ -41,7 +40,7 @@ func NewSalmonBridge(name string, address string, port int, tlscfg *tls.Config,
 }
 
 // =========================================================
-// Near side: dial far, open a new QUIC stream per TCP conn
+// Near side: dial far, open a new anadromous stream per TCP conn
 // =========================================================
 
 func (s *SalmonBridge) StatusCheck() {
@@ -88,7 +87,7 @@ func (s *SalmonBridge) StatusCheck() {
 	_, _ = stream.Read(buf)
 }
 
-func (s *SalmonBridge) tryConnect() (net.Conn, net.Conn, *quic.Stream, func(), error) {
+func (s *SalmonBridge) tryConnect() (net.Conn, net.Conn, *anadromous.Stream, func(), error) {
 	// Open the stream first
 	stream, cleanup, err, _ := s.sq.OpenStream()
 	if err != nil {
@@ -101,9 +100,8 @@ func (s *SalmonBridge) tryConnect() (net.Conn, net.Conn, *quic.Stream, func(), e
 	return clientSide, internal, stream, cleanup, nil
 }
 
-// NewNearConn returns a net.Conn to the caller. Internally, it opens a new QUIC
-
-// stream, sends a small header identifying the remote target (host:port),
+// NewNearConn returns a net.Conn to the caller. Internally, it opens a new
+// anadromous stream, sends a small header identifying the remote target (host:port),
 // and then pipes bytes bidirectionally.
 func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 
@@ -165,7 +163,7 @@ func (s *SalmonBridge) shouldBlockFarOutConn(outHostFull string) bool {
 	return !slices.Contains(s.allowedOutAddresses, nearAddr)
 }
 
-func (s *SalmonBridge) handleStatusPing(stream *quic.Stream) {
+func (s *SalmonBridge) handleStatusPing(stream *anadromous.Stream) {
 	// Simple status response: number of active connections
 	startTime := time.Now()
 	_, err := stream.Write([]byte{STATUS_ACK})
@@ -186,7 +184,7 @@ func (s *SalmonBridge) handleStatusPing(stream *quic.Stream) {
 	status.GlobalConnMonitorRef.RegisterPing(s.BridgeName, elapsed.Milliseconds())
 }
 
-func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
+func (s *SalmonBridge) handleIncomingStream(stream *anadromous.Stream) {
 
 	// 1) Read target header.
 	headerType, err := ReadHeaderType(stream)
@@ -266,6 +264,6 @@ func (s *SalmonBridge) handleIncomingStream(stream *quic.Stream) {
 }
 
 func (s *SalmonBridge) NewFarListen() error {
-	// Pass it down the the quic stream with the handler
+	// Pass it down the the anadromous stream with the handler
 	return s.sq.NewFarListen(s.handleIncomingStream)
 }
