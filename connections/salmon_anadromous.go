@@ -21,6 +21,19 @@ type BridgeNetConfig struct {
 	StreamRecvBuffer int           // per-stream receive buffer ceiling (was MaxStreamReceiveWindow)
 	PacketSize       int           // max UDP datagram size, must match both ends (was InitialPacketSize)
 	MaxStreams       int           // concurrent streams per connection (was MaxIncomingStreams)
+
+	// BandwidthLimit (bytes/sec) is the bridge's SBTotalBandwidthLimit
+	// passed down as the transport pacing rate: anadromous holds the wire
+	// at exactly this rate through any loss (it never backs off), which
+	// keeps a provisioned pipe full without the line-rate bursts that
+	// overflow bottleneck queues and self-inflict drops. It also unlocks
+	// the transport's uncapped long-RTT send window. Note the pacer is
+	// per-connection while the limit is per-bridge: the bridge's
+	// SharedLimiter still governs aggregate goodput at the TCP edges, so
+	// with multiple pooled connections the pacer acts as a per-connection
+	// ceiling and smoother. <= 0 leaves the transport unpaced (bounded
+	// window).
+	BandwidthLimit int
 }
 
 // options translates the config (plus optional interface binding) into
@@ -38,6 +51,9 @@ func (c BridgeNetConfig) options(interfaceName string) []anadromous.Option {
 	}
 	if c.MaxStreams > 0 {
 		opts = append(opts, anadromous.WithMaxStreams(c.MaxStreams))
+	}
+	if c.BandwidthLimit > 0 {
+		opts = append(opts, anadromous.WithPacingRate(c.BandwidthLimit))
 	}
 	if interfaceName != "" {
 		opts = append(opts, anadromous.WithBindToDevice(interfaceName))

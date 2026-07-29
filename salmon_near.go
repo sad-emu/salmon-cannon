@@ -122,6 +122,7 @@ func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
 		StreamRecvBuffer: int(config.MaxRecieveBufferSize),
 		PacketSize:       config.InitialPacketSize,
 		MaxStreams:       socks.MaxConnections,
+		BandwidthLimit:   int(config.TotalBandwidthLimit),
 	}
 
 	sl := limiter.NewSharedLimiter(int64(config.TotalBandwidthLimit))

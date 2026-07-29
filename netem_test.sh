@@ -125,6 +125,7 @@ SalmonBridges:
     SBIdleTimeout: 10s
     SBInitialPacketSize: 8500
     SBMaxRecieveBufferSize: 2GB
+    SBTotalBandwidthLimit: 1G
     SBInterfaceName: "lo"
 EOF
 
@@ -141,6 +142,7 @@ SalmonBridges:
     SBIdleTimeout: 10s
     SBInitialPacketSize: 8500
     SBMaxRecieveBufferSize: 2GB
+    SBTotalBandwidthLimit: 1G
     SBInterfaceName: "lo"
 EOF
 
