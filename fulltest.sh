@@ -2,6 +2,7 @@
 # run_ratetest.sh — updated: starts a ratetest listener on the far side (mode=listen)
 #
 # Usage: run from repository root (where main.go and ratetest/ live).
+# TEST_PACKET_SIZE overrides the loopback performance MTU (default 8500).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,6 +16,7 @@ SOCKS_PORT=1080
 
 SC_BIN="$BIN_DIR/sc"
 RATETEST_BIN="$BIN_DIR/salmon-rate"
+TEST_PACKET_SIZE="${TEST_PACKET_SIZE:-8500}"
 
 cleanup() {
     echo "Cleaning up..."
@@ -57,7 +59,7 @@ SalmonBridges:
     SBSocksListenPort: 0
     SBSocksListenAddress: "127.0.0.1"
     SBIdleTimeout: 60s
-    SBInitialPacketSize: 1400
+    SBInitialPacketSize: ${TEST_PACKET_SIZE}
     SBMaxRecieveBufferSize: 2GB
     SBInterfaceName: "lo"
     SBSharedSecret: "my_shared_secret"
@@ -79,7 +81,7 @@ SalmonBridges:
     SBFarPort: ${FAR_PORT}
     SBFarIp: "127.0.0.1"
     SBIdleTimeout: 60s
-    SBInitialPacketSize: 1400
+    SBInitialPacketSize: ${TEST_PACKET_SIZE}
     SBMaxRecieveBufferSize: 2GB
     SBInterfaceName: "lo"
     SBSharedSecret: "my_shared_secret"

@@ -16,8 +16,9 @@
 #   ./run_ratetest.sh
 #
 # By default this will apply netem only to UDP on the loopback interface (lo).
-# You may override the interface with NETIF env var:
-#   NETIF=lo ./run_ratetest.sh
+# Important defaults can be overridden without editing the script:
+#   NETIF=lo NETEM_LIMIT=10000 TEST_WINDOW=64MB \
+#     TEST_BANDWIDTH=2G MIN_RECEIVER_MBIT=1000 ./netem_test.sh
 #
 # Notes:
 #  - Requires `go`, `tc` (iproute2) and `sudo` (if not running as root).
@@ -37,15 +38,24 @@ SOCKS_PORT=1080
 
 SC_BIN="$BIN_DIR/sc"
 RATETEST_BIN="$BIN_DIR/salmon-rate"
+TEST_BANDWIDTH="${TEST_BANDWIDTH:-2G}"
+TEST_WINDOW="${TEST_WINDOW:-64MB}"
 
 # netem settings (Example 1 - hostile-ish)
 NETIF="${NETIF:-lo}"
-NETEM_DELAY="50ms"
-NETEM_JITTER="10ms"
-NETEM_LOSS="10% 10%"
-NETEM_REORDER="10% 10%"
-NETEM_DUP="5%"
-NETEM_CORRUPT="5%"
+NETEM_DELAY="${NETEM_DELAY:-50ms}"
+NETEM_JITTER="${NETEM_JITTER:-10ms}"
+NETEM_LOSS="${NETEM_LOSS:-10% 10%}"
+NETEM_REORDER="${NETEM_REORDER:-10% 10%}"
+NETEM_DUP="${NETEM_DUP:-5%}"
+NETEM_CORRUPT="${NETEM_CORRUPT:-5%}"
+MIN_RECEIVER_MBIT="${MIN_RECEIVER_MBIT:-1000}"
+# netem defaults to only 1,000 queued packets. At 2 Gbit/s, 50 ms of
+# one-way delay already holds about 1,471 8,500-byte datagrams, before
+# jitter, duplication, reordering, FEC, or recovery traffic. That default
+# therefore injects a large amount of queue-overflow loss on top of the loss
+# requested above. Keep enough BDP in the emulator for this profile.
+NETEM_LIMIT="${NETEM_LIMIT:-10000}"
 
 OLD_QDISC_FILE="$WORKDIR/old_qdisc.txt"
 
@@ -54,17 +64,25 @@ NEAR_PID=""
 RATELISTEN_PID=""
 NETEM_APPLIED=0
 
+# Use tc directly when already privileged (including an isolated user/network
+# namespace); otherwise use sudo. Keeping this decision in one place also
+# makes cleanup use the same authority as setup.
+TC=(tc)
+if [[ $EUID -ne 0 ]]; then
+    if ! command -v sudo >/dev/null 2>&1; then
+        echo "netem requires root/CAP_NET_ADMIN and sudo was not found" >&2
+        exit 1
+    fi
+    TC=(sudo tc)
+fi
+
 # cleanup function to kill background processes and remove netem
 cleanup() {
     echo "Cleaning up..."
     # remove netem first to restore networking before killing things that might depend on it
     if [[ $NETEM_APPLIED -eq 1 ]]; then
         echo "Restoring network interface $NETIF (removing qdisc)..."
-        if command -v sudo >/dev/null 2>&1; then
-            sudo tc qdisc del dev "$NETIF" root 2>/dev/null || true
-        else
-            tc qdisc del dev "$NETIF" root 2>/dev/null || true
-        fi
+        "${TC[@]}" qdisc del dev "$NETIF" root 2>/dev/null || true
         NETEM_APPLIED=0
         echo "Old qdisc saved at: $OLD_QDISC_FILE"
         if [[ -f "$OLD_QDISC_FILE" ]]; then
@@ -124,8 +142,15 @@ SalmonBridges:
     SBSocksListenAddress: "127.0.0.1"
     SBIdleTimeout: 10s
     SBInitialPacketSize: 8500
-    SBMaxRecieveBufferSize: 2GB
-    SBTotalBandwidthLimit: 1G
+    SBMaxRecieveBufferSize: ${TEST_WINDOW}
+    SBMaxBytesInFlight: ${TEST_WINDOW}
+    SBInitialRetransmitTimeout: 300ms
+    SBMinRetransmitTimeout: 150ms
+    SBTotalBandwidthLimit: ${TEST_BANDWIDTH}
+    SBPacingDatagramOverhead: 66
+    SBPacingMinimumDatagramSize: 84
+    SBFECGroupSize: 8
+    SBFEC2D: true
     SBInterfaceName: "lo"
 EOF
 
@@ -141,8 +166,15 @@ SalmonBridges:
     SBFarIp: "127.0.0.1"
     SBIdleTimeout: 10s
     SBInitialPacketSize: 8500
-    SBMaxRecieveBufferSize: 2GB
-    SBTotalBandwidthLimit: 1G
+    SBMaxRecieveBufferSize: ${TEST_WINDOW}
+    SBMaxBytesInFlight: ${TEST_WINDOW}
+    SBInitialRetransmitTimeout: 300ms
+    SBMinRetransmitTimeout: 150ms
+    SBTotalBandwidthLimit: ${TEST_BANDWIDTH}
+    SBPacingDatagramOverhead: 66
+    SBPacingMinimumDatagramSize: 84
+    SBFECGroupSize: 8
+    SBFEC2D: true
     SBInterfaceName: "lo"
 EOF
 
@@ -178,86 +210,66 @@ apply_netem_udp_only() {
     echo "==> Preparing to apply UDP-only netem to interface: $NETIF"
     mkdir -p "$(dirname "$OLD_QDISC_FILE")"
     # Save existing qdisc for inspection
-    if command -v sudo >/dev/null 2>&1; then
-        sudo tc qdisc show dev "$NETIF" > "$OLD_QDISC_FILE" 2>/dev/null || true
-    else
-        tc qdisc show dev "$NETIF" > "$OLD_QDISC_FILE" 2>/dev/null || true
-    fi
+    "${TC[@]}" qdisc show dev "$NETIF" > "$OLD_QDISC_FILE" 2>/dev/null || true
     echo "Saved existing qdisc to $OLD_QDISC_FILE"
+
+    # From this point onward cleanup must attempt to remove the root qdisc,
+    # including when setup fails part-way through.
+    NETEM_APPLIED=1
 
     # 1) Create a classful root qdisc (prio) — simple 3-band classifier.
     #    Band 3 will carry UDP (netem), other bands are untouched.
     echo "Setting up prio root qdisc on $NETIF (bands: 3)"
-    if command -v sudo >/dev/null 2>&1; then
-        sudo tc qdisc replace dev "$NETIF" root handle 1: prio
-    else
-        tc qdisc replace dev "$NETIF" root handle 1: prio
-    fi
+    "${TC[@]}" qdisc replace dev "$NETIF" root handle 1: prio
 
     # 2) Attach netem to band 3 (parent 1:3)
     echo "Attaching netem to band 3 (parent 1:3)"
-    NETEM_CMD=(tc qdisc replace dev "$NETIF" parent 1:3 handle 30: netem
+    NETEM_CMD=(qdisc replace dev "$NETIF" parent 1:3 handle 30: netem
+        limit "${NETEM_LIMIT}"
         delay "${NETEM_DELAY}" "${NETEM_JITTER}" distribution normal
         loss ${NETEM_LOSS}
         reorder ${NETEM_REORDER}
         duplicate ${NETEM_DUP}
         corrupt ${NETEM_CORRUPT})
-    if command -v sudo >/dev/null 2>&1; then
-        sudo "${NETEM_CMD[@]}"
-    else
-        "${NETEM_CMD[@]}"
-    fi
+    "${TC[@]}" "${NETEM_CMD[@]}"
 
     # 3) Add filter: match IPv4 UDP (protocol 17) and send to flowid 1:3
     echo "Adding filter to classify IPv4 UDP into band 3"
-    if command -v sudo >/dev/null 2>&1; then
-        sudo tc filter replace dev "$NETIF" protocol ip parent 1: prio 1 u32 \
-            match ip protocol 17 0xff \
-            flowid 1:3
-    else
-        tc filter replace dev "$NETIF" protocol ip parent 1: prio 1 u32 \
-            match ip protocol 17 0xff \
-            flowid 1:3
-    fi
+    "${TC[@]}" filter replace dev "$NETIF" protocol ip parent 1: prio 1 u32 \
+        match ip protocol 17 0xff \
+        flowid 1:3
 
     # 4) (Optional) Add IPv6 UDP filter so udp6 is also classified
     echo "Adding filter to classify IPv6 UDP into band 3 (if kernel supports it)"
-    if command -v sudo >/dev/null 2>&1; then
-        sudo tc filter replace dev "$NETIF" protocol ipv6 parent 1: prio 2 flower ip_proto 17 action goto chain 1 2>/dev/null || true
-        # Simpler attempt using u32 style for ip6 (older kernels may not support match ip6 nexthdr in u32).
-        sudo tc filter replace dev "$NETIF" protocol ipv6 parent 1: prio 2 u32 \
-            match ip6 nexthdr 17 0xff \
-            flowid 1:3 2>/dev/null || true
-    else
-        tc filter replace dev "$NETIF" protocol ipv6 parent 1: prio 2 flower ip_proto 17 action goto chain 1 2>/dev/null || true
-        tc filter replace dev "$NETIF" protocol ipv6 parent 1: prio 2 u32 \
-            match ip6 nexthdr 17 0xff \
-            flowid 1:3 2>/dev/null || true
-    fi
+    "${TC[@]}" filter replace dev "$NETIF" protocol ipv6 parent 1: prio 2 flower ip_proto 17 action goto chain 1 2>/dev/null || true
+    # Simpler attempt using u32 style for ip6 (older kernels may not support match ip6 nexthdr in u32).
+    "${TC[@]}" filter replace dev "$NETIF" protocol ipv6 parent 1: prio 2 u32 \
+        match ip6 nexthdr 17 0xff \
+        flowid 1:3 2>/dev/null || true
 
-    NETEM_APPLIED=1
     echo "UDP-only netem applied to $NETIF (band 3)."
     # show qdisc and filters
-    if command -v sudo >/dev/null 2>&1; then
-        sudo tc -s qdisc show dev "$NETIF"
-        sudo tc filter show dev "$NETIF" parent 1:
-    else
-        tc -s qdisc show dev "$NETIF"
-        tc filter show dev "$NETIF" parent 1:
-    fi
+    "${TC[@]}" -s qdisc show dev "$NETIF"
+    "${TC[@]}" filter show dev "$NETIF" parent 1:
 }
 
 echo "==> Applying UDP-only netem (hostile profile) to interface: $NETIF"
-apply_netem_udp_only || { echo "Failed to apply netem. Exiting."; exit 1; }
+# Call directly rather than from an `if`/`||` condition: Bash disables
+# `set -e` throughout a function used as a conditional, which previously
+# allowed failed tc commands to fall through into an unshaped benchmark.
+apply_netem_udp_only
 
 echo "==> Running ratetest (mode=test) in near directory, output will be shown below"
 cd "$NEAR_DIR"
 
 # Run ratetest and capture its output. This binary reads scconfig.yml from cwd, which points to the near config.
 set +e
-"$RATETEST_BIN" -mode=test 2>&1 | tee ratetest_full_output.txt
+"$RATETEST_BIN" -mode=test -min-mbps "$MIN_RECEIVER_MBIT" 2>&1 | tee ratetest_full_output.txt
 RT_EXIT=$?
 set -e
+
+echo "==> Final netem counters"
+"${TC[@]}" -s qdisc show dev "$NETIF" || true
 
 if [[ $RT_EXIT -ne 0 ]]; then
     echo "ratetest exited with code $RT_EXIT"
@@ -274,10 +286,11 @@ echo "Near logs: $NEAR_DIR/sc.log (stdout: $NEAR_DIR/near.stdout.log)"
 echo "ratetest listener logs: $FAR_DIR/ratetest-listen.stdout.log (stderr: $FAR_DIR/ratetest-listen.stderr.log)"
 echo
 echo "Netem (UDP-only) was applied to interface: $NETIF"
-echo "If you want to stop the sc instances and ratetest listener now, press ENTER; otherwise they'll be left running until this script exits (or Ctrl+C)."
+echo "The test processes will be stopped after the summary is printed."
 echo
 echo "===== ratetest summary (extracted) ====="
 tail -n 40 ratetest_full_output.txt || true
 echo "========================================"
 
-# exit -> cleanup trap will run and remove qdisc + kill processes
+# Preserve the benchmark result while still running the cleanup trap.
+exit "$RT_EXIT"

@@ -140,16 +140,25 @@ type SalmonBridgeConfig struct {
 	FarPort              int            `yaml:"SBFarPort,omitempty"`
 	FarIp                string         `yaml:"SBFarIp"`
 
-	SocksListenAddress   string         `yaml:"SBSocksListenAddress,omitempty"`   // e.g. "127.0.0.1"
-	HttpListenPort       int            `yaml:"SBHttpListenPort,omitempty"`       // optional HTTP proxy listen port (near only)
-	IdleTimeout          DurationString `yaml:"SBIdleTimeout,omitempty"`          // default "10s"
-	InitialPacketSize    int            `yaml:"SBInitialPacketSize,omitempty"`    // default 1350
-	TotalBandwidthLimit  SizeString     `yaml:"SBTotalBandwidthLimit,omitempty"`  // default "100M"
-	MaxRecieveBufferSize SizeString     `yaml:"SBMaxRecieveBufferSize,omitempty"` // default "500MB"
-	InterfaceName        string         `yaml:"SBInterfaceName,omitempty"`        // default ""
-	AllowedInAddresses   []string       `yaml:"SBAllowedInAddresses,omitempty"`   // default []
-	AllowedOutAddresses  []string       `yaml:"SBAllowedOutAddresses,omitempty"`  // default []
-	SharedSecret         string         `yaml:"SBSharedSecret,omitempty"`         // optional AES key for encrypting traffic
+	SocksListenAddress        string         `yaml:"SBSocksListenAddress,omitempty"`        // e.g. "127.0.0.1"
+	HttpListenPort            int            `yaml:"SBHttpListenPort,omitempty"`            // optional HTTP proxy listen port (near only)
+	IdleTimeout               DurationString `yaml:"SBIdleTimeout,omitempty"`               // default "10s"
+	InitialRetransmitTimeout  DurationString `yaml:"SBInitialRetransmitTimeout,omitempty"`  // defaults to Anadromous's initial RTO
+	MinRetransmitTimeout      DurationString `yaml:"SBMinRetransmitTimeout,omitempty"`      // defaults to Anadromous's adaptive RTO floor
+	InitialPacketSize         int            `yaml:"SBInitialPacketSize,omitempty"`         // default 1350
+	TotalBandwidthLimit       SizeString     `yaml:"SBTotalBandwidthLimit,omitempty"`       // default "100M"
+	MaxRecieveBufferSize      SizeString     `yaml:"SBMaxRecieveBufferSize,omitempty"`      // default "500MB"
+	MaxBytesInFlight          SizeString     `yaml:"SBMaxBytesInFlight,omitempty"`          // defaults to Anadromous's derived limit
+	FECGroupSize              *int           `yaml:"SBFECGroupSize,omitempty"`              // default 8; explicit 0 disables FEC
+	FEC2D                     bool           `yaml:"SBFEC2D,omitempty"`                     // adds a second parity dimension
+	PacingDatagramOverhead    int            `yaml:"SBPacingDatagramOverhead,omitempty"`    // carrier bytes outside each UDP payload
+	PacingMinimumDatagramSize int            `yaml:"SBPacingMinimumDatagramSize,omitempty"` // carrier minimum frame charge incl. padding
+	PacingBurstSize           SizeString     `yaml:"SBPacingBurstSize,omitempty"`           // zero uses Anadromous's ~2ms batch quantum
+	TransportBatchSize        int            `yaml:"SBTransportBatchSize,omitempty"`        // zero uses Anadromous's default sendmmsg/recvmmsg size
+	InterfaceName             string         `yaml:"SBInterfaceName,omitempty"`             // default ""
+	AllowedInAddresses        []string       `yaml:"SBAllowedInAddresses,omitempty"`        // default []
+	AllowedOutAddresses       []string       `yaml:"SBAllowedOutAddresses,omitempty"`       // default []
+	SharedSecret              string         `yaml:"SBSharedSecret,omitempty"`              // optional AES key for encrypting traffic
 }
 
 // SalmonBounceConfig holds config for UDP relay instances

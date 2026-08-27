@@ -42,6 +42,77 @@ func TestNewSalmonAnadromousWithInterface(t *testing.T) {
 	}
 }
 
+func TestNewSalmonAnadromousOwnsOneWirePacer(t *testing.T) {
+	netcfg := BridgeNetConfig{
+		BandwidthLimit:            1_250_000_000,
+		PacingDatagramOverhead:    66,
+		PacingMinimumDatagramSize: 84,
+		PacingBurstBytes:          2_500_000,
+		TransportBatchSize:        32,
+	}
+	sq := NewSalmonAnadromous(8080, "127.0.0.1", "test-bridge", netcfg, "")
+	if sq.wirePacer == nil {
+		t.Fatal("bandwidth-limited bridge did not create a shared wire pacer")
+	}
+	if got := sq.wirePacer.RateBytesPerSecond(); got != 1_250_000_000 {
+		t.Fatalf("pacer rate = %d, want 1250000000", got)
+	}
+	if got := sq.wirePacer.BurstBytes(); got != 2_500_000 {
+		t.Fatalf("pacer burst = %d, want 2500000", got)
+	}
+	accounting := sq.wirePacer.Accounting()
+	if accounting.PerDatagramOverhead != 66 || accounting.MinimumDatagramSize != 84 {
+		t.Fatalf("pacer accounting = %+v, want overhead 66/minimum 84", accounting)
+	}
+	if got := len(sq.opts); got != 2 {
+		t.Fatalf("wire pacer + batch config produced %d options, want 2", got)
+	}
+
+	unlimited := NewSalmonAnadromous(8080, "127.0.0.1", "unlimited", BridgeNetConfig{}, "")
+	if unlimited.wirePacer != nil {
+		t.Fatal("unlimited bridge unexpectedly created a wire pacer")
+	}
+}
+
+func TestBridgeNetConfigFECOptions(t *testing.T) {
+	fecGroup := 8
+	if got := len((BridgeNetConfig{}).options("")); got != 0 {
+		t.Fatalf("empty config produced %d options, want 0", got)
+	}
+
+	configured := BridgeNetConfig{FECGroupSize: &fecGroup, FEC2D: true}
+	if got := len(configured.options("")); got != 2 {
+		t.Fatalf("FEC and FEC2D config produced %d options, want 2", got)
+	}
+
+	disabled := 0
+	if got := len((BridgeNetConfig{FECGroupSize: &disabled}).options("")); got != 1 {
+		t.Fatalf("explicit FEC disable produced %d options, want 1", got)
+	}
+}
+
+func TestBridgeNetConfigMaxBytesInFlightOption(t *testing.T) {
+	if got := len((BridgeNetConfig{MaxBytesInFlight: 32 << 20}).options("")); got != 1 {
+		t.Fatalf("MaxBytesInFlight config produced %d options, want 1", got)
+	}
+	if got := len((BridgeNetConfig{MaxBytesInFlight: 0}).options("")); got != 0 {
+		t.Fatalf("zero MaxBytesInFlight produced %d options, want derived protocol default", got)
+	}
+}
+
+func TestBridgeNetConfigRetransmitTimeoutOptions(t *testing.T) {
+	configured := BridgeNetConfig{
+		InitialRetransmitTimeout: 300 * time.Millisecond,
+		MinRetransmitTimeout:     150 * time.Millisecond,
+	}
+	if got := len(configured.options("")); got != 2 {
+		t.Fatalf("retransmit timeout config produced %d options, want 2", got)
+	}
+	if got := len((BridgeNetConfig{}).options("")); got != 0 {
+		t.Fatalf("zero retransmit timeouts produced %d options, want protocol defaults", got)
+	}
+}
+
 func TestShouldBlockHost(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -142,9 +213,12 @@ func TestOpenStreamIntegration(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
+	fecGroup := 8
 	netcfg := BridgeNetConfig{
-		IdleTimeout: 2 * time.Second,
-		MaxStreams:  100,
+		IdleTimeout:  2 * time.Second,
+		MaxStreams:   100,
+		FECGroupSize: &fecGroup,
+		FEC2D:        true,
 	}
 
 	// Start server

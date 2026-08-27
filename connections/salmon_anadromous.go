@@ -17,31 +17,64 @@ import (
 // quic.Config / tls.Config. Anadromous has no TLS; when payload encryption
 // is required, run the bridge with a SharedSecret so the AES layer covers it.
 type BridgeNetConfig struct {
-	IdleTimeout      time.Duration // dead-peer detection window (was MaxIdleTimeout)
-	StreamRecvBuffer int           // per-stream receive buffer ceiling (was MaxStreamReceiveWindow)
-	PacketSize       int           // max UDP datagram size, must match both ends (was InitialPacketSize)
-	MaxStreams       int           // concurrent streams per connection (was MaxIncomingStreams)
+	IdleTimeout time.Duration // dead-peer detection window (was MaxIdleTimeout)
+	// InitialRetransmitTimeout is used before the RTT estimator has enough
+	// samples; MinRetransmitTimeout is the estimator's lower bound. Zero
+	// preserves Anadromous's defaults for either setting.
+	InitialRetransmitTimeout time.Duration
+	MinRetransmitTimeout     time.Duration
+	StreamRecvBuffer         int // per-stream receive buffer ceiling (was MaxStreamReceiveWindow)
+	PacketSize               int // max UDP datagram size, must match both ends (was InitialPacketSize)
+	MaxStreams               int // concurrent streams per connection (was MaxIncomingStreams)
+	// MaxBytesInFlight caps sent-but-unacknowledged bytes per stream. Zero
+	// leaves Anadromous to derive a safe value from the UDP receive buffer.
+	MaxBytesInFlight int
+	// FECGroupSize selects the number of DATA frames protected by each XOR
+	// parity frame. nil keeps Anadromous's default, while a pointer to zero
+	// disables FEC. Both ends must use the same value.
+	FECGroupSize *int
+	// FEC2D adds orthogonal row parity. It requires FEC to be enabled and
+	// should be configured identically at both ends.
+	FEC2D bool
 
 	// BandwidthLimit (bytes/sec) is the bridge's SBTotalBandwidthLimit
-	// passed down as the transport pacing rate: anadromous holds the wire
-	// at exactly this rate through any loss (it never backs off), which
-	// keeps a provisioned pipe full without the line-rate bursts that
-	// overflow bottleneck queues and self-inflict drops. It also unlocks
-	// the transport's uncapped long-RTT send window. Note the pacer is
-	// per-connection while the limit is per-bridge: the bridge's
-	// SharedLimiter still governs aggregate goodput at the TCP edges, so
-	// with multiple pooled connections the pacer acts as a per-connection
-	// ceiling and smoother. <= 0 leaves the transport unpaced (bounded
-	// window).
-	BandwidthLimit int
+	// passed down as one bridge-wide transport pacing rate. Every connection
+	// created by this bridge shares the same wire pacer, so FEC/retransmission
+	// traffic cannot multiply the provisioned rate with the pool size.
+	BandwidthLimit            int
+	PacingDatagramOverhead    int // carrier-counted bytes outside each UDP payload
+	PacingMinimumDatagramSize int // carrier minimum including overhead/padding
+	PacingBurstBytes          int // zero selects Anadromous's ~2ms quantum
+	TransportBatchSize        int // zero preserves Anadromous's default
 }
 
-// options translates the config (plus optional interface binding) into
-// anadromous options.
-func (c BridgeNetConfig) options(interfaceName string) []anadromous.Option {
+func (c BridgeNetConfig) newWirePacer() *anadromous.WirePacer {
+	if c.BandwidthLimit <= 0 {
+		return nil
+	}
+	return anadromous.NewWirePacer(anadromous.WirePacerConfig{
+		RateBytesPerSecond: int64(c.BandwidthLimit),
+		BurstBytes:         int64(c.PacingBurstBytes),
+		Accounting: anadromous.WireAccounting{
+			PerDatagramOverhead: int64(c.PacingDatagramOverhead),
+			MinimumDatagramSize: int64(c.PacingMinimumDatagramSize),
+		},
+	})
+}
+
+// optionsWithPacer translates the config (plus optional interface binding)
+// into Anadromous options. pacer is caller-owned so one pointer can be reused
+// by every Dial/accepted Connection belonging to a bridge.
+func (c BridgeNetConfig) optionsWithPacer(interfaceName string, pacer *anadromous.WirePacer) []anadromous.Option {
 	var opts []anadromous.Option
 	if c.IdleTimeout > 0 {
 		opts = append(opts, anadromous.WithIdleTimeout(c.IdleTimeout))
+	}
+	if c.InitialRetransmitTimeout > 0 {
+		opts = append(opts, anadromous.WithRetransmitTimeout(c.InitialRetransmitTimeout))
+	}
+	if c.MinRetransmitTimeout > 0 {
+		opts = append(opts, anadromous.WithMinRetransmitTimeout(c.MinRetransmitTimeout))
 	}
 	if c.StreamRecvBuffer > 0 {
 		opts = append(opts, anadromous.WithStreamBufferSize(c.StreamRecvBuffer))
@@ -52,13 +85,31 @@ func (c BridgeNetConfig) options(interfaceName string) []anadromous.Option {
 	if c.MaxStreams > 0 {
 		opts = append(opts, anadromous.WithMaxStreams(c.MaxStreams))
 	}
-	if c.BandwidthLimit > 0 {
-		opts = append(opts, anadromous.WithPacingRate(c.BandwidthLimit))
+	if c.MaxBytesInFlight > 0 {
+		opts = append(opts, anadromous.WithMaxBytesInFlight(c.MaxBytesInFlight))
+	}
+	if c.FECGroupSize != nil {
+		opts = append(opts, anadromous.WithFEC(*c.FECGroupSize))
+	}
+	if c.FEC2D {
+		opts = append(opts, anadromous.WithFEC2D(true))
+	}
+	if c.TransportBatchSize > 0 {
+		opts = append(opts, anadromous.WithBatchSize(c.TransportBatchSize))
+	}
+	if pacer != nil {
+		opts = append(opts, anadromous.WithWirePacer(pacer))
 	}
 	if interfaceName != "" {
 		opts = append(opts, anadromous.WithBindToDevice(interfaceName))
 	}
 	return opts
+}
+
+// options creates a fresh endpoint-wide pacer. NewSalmonAnadromous uses the
+// split form above so it can retain and share the pointer across later Dials.
+func (c BridgeNetConfig) options(interfaceName string) []anadromous.Option {
+	return c.optionsWithPacer(interfaceName, c.newWirePacer())
 }
 
 type anadromousConnection struct {
@@ -76,16 +127,19 @@ type SalmonAnadromous struct {
 	connections   []*anadromousConnection
 	connectionsMu sync.RWMutex
 	opts          []anadromous.Option
+	wirePacer     *anadromous.WirePacer
 	interfaceName string
 }
 
 func NewSalmonAnadromous(port int, address string, name string,
 	netcfg BridgeNetConfig, interfaceName string) *SalmonAnadromous {
+	pacer := netcfg.newWirePacer()
 	sq := &SalmonAnadromous{
 		BridgeName:    name,
 		BridgeAddress: address,
 		BridgePort:    port,
-		opts:          netcfg.options(interfaceName),
+		opts:          netcfg.optionsWithPacer(interfaceName, pacer),
+		wirePacer:     pacer,
 		interfaceName: interfaceName,
 		connections:   make([]*anadromousConnection, 0, MaxConnectionsPerBridge),
 	}

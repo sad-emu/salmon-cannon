@@ -118,11 +118,20 @@ func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
 	bridgePort := config.FarPort
 
 	netcfg := connections.BridgeNetConfig{
-		IdleTimeout:      config.IdleTimeout.Duration(),
-		StreamRecvBuffer: int(config.MaxRecieveBufferSize),
-		PacketSize:       config.InitialPacketSize,
-		MaxStreams:       socks.MaxConnections,
-		BandwidthLimit:   int(config.TotalBandwidthLimit),
+		IdleTimeout:               config.IdleTimeout.Duration(),
+		InitialRetransmitTimeout:  config.InitialRetransmitTimeout.Duration(),
+		MinRetransmitTimeout:      config.MinRetransmitTimeout.Duration(),
+		StreamRecvBuffer:          int(config.MaxRecieveBufferSize),
+		PacketSize:                config.InitialPacketSize,
+		MaxStreams:                socks.MaxConnections,
+		MaxBytesInFlight:          int(config.MaxBytesInFlight),
+		FECGroupSize:              config.FECGroupSize,
+		FEC2D:                     config.FEC2D,
+		BandwidthLimit:            int(config.TotalBandwidthLimit),
+		PacingDatagramOverhead:    config.PacingDatagramOverhead,
+		PacingMinimumDatagramSize: config.PacingMinimumDatagramSize,
+		PacingBurstBytes:          int(config.PacingBurstSize),
+		TransportBatchSize:        config.TransportBatchSize,
 	}
 
 	sl := limiter.NewSharedLimiter(int64(config.TotalBandwidthLimit))

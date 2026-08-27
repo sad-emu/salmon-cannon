@@ -97,12 +97,21 @@ func TestLoadConfig(t *testing.T) {
     SBFarPort: 1100
     SBFarIp: "127.0.0.1"
     SBIdleTimeout: "15s"
+    SBInitialRetransmitTimeout: "300ms"
+    SBMinRetransmitTimeout: "150ms"
     SBInitialPacketSize: 1500
     SBRecieveWindow: "20M"
     SBMaxRecieveWindow: "50M"
     SBTotalBandwidthLimit: "200M"
+    SBPacingDatagramOverhead: 66
+    SBPacingMinimumDatagramSize: 84
+    SBPacingBurstSize: 512KB
+    SBTransportBatchSize: 16
     SBInterfaceName: "eth0"
     SBMaxRecieveBufferSize: 500MB
+    SBMaxBytesInFlight: 32MB
+    SBFECGroupSize: 8
+    SBFEC2D: true
     SBAllowedInAddresses:
       - "127.0.0.1"
       - "127.0.0.2"
@@ -132,11 +141,26 @@ func TestLoadConfig(t *testing.T) {
 	if b.IdleTimeout != DurationString(15*time.Second) {
 		t.Errorf("IdleTimeout not parsed correctly")
 	}
+	if b.InitialRetransmitTimeout != DurationString(300*time.Millisecond) {
+		t.Errorf("InitialRetransmitTimeout not parsed correctly")
+	}
+	if b.MinRetransmitTimeout != DurationString(150*time.Millisecond) {
+		t.Errorf("MinRetransmitTimeout not parsed correctly")
+	}
 	if b.InitialPacketSize != 1500 {
 		t.Errorf("InitialPacketSize not parsed correctly")
 	}
 	if b.TotalBandwidthLimit != SizeString(25000000) {
 		t.Errorf("TotalBandwidthLimit not parsed correctlygot %d", b.TotalBandwidthLimit)
+	}
+	if b.PacingDatagramOverhead != 66 || b.PacingMinimumDatagramSize != 84 {
+		t.Errorf("pacing accounting not parsed correctly: overhead=%d minimum=%d", b.PacingDatagramOverhead, b.PacingMinimumDatagramSize)
+	}
+	if b.PacingBurstSize != 512<<10 {
+		t.Errorf("PacingBurstSize not parsed correctly, got %d", b.PacingBurstSize)
+	}
+	if b.TransportBatchSize != 16 {
+		t.Errorf("TransportBatchSize not parsed correctly, got %d", b.TransportBatchSize)
 	}
 	if b.InterfaceName != "eth0" {
 		t.Errorf("InterfaceName not parsed correctly, got %q", b.InterfaceName)
@@ -144,11 +168,38 @@ func TestLoadConfig(t *testing.T) {
 	if b.MaxRecieveBufferSize != 524288000 {
 		t.Errorf("MaxRecieveBufferSize not parsed correctly, got %d", b.MaxRecieveBufferSize)
 	}
+	if b.MaxBytesInFlight != 32<<20 {
+		t.Errorf("MaxBytesInFlight not parsed correctly, got %d", b.MaxBytesInFlight)
+	}
+	if b.FECGroupSize == nil || *b.FECGroupSize != 8 {
+		t.Errorf("FECGroupSize not parsed correctly, got %v", b.FECGroupSize)
+	}
+	if !b.FEC2D {
+		t.Error("FEC2D not parsed correctly")
+	}
 	if len(b.AllowedInAddresses) != 2 {
 		t.Errorf("AllowedInAddresses not parsed correctly, got %d", len(b.AllowedInAddresses))
 	}
 	if len(b.AllowedOutAddresses) != 2 {
 		t.Errorf("AllowedOutAddresses not parsed correctly, got %d", len(b.AllowedOutAddresses))
+	}
+}
+
+func TestFECConfigDistinguishesOmittedAndDisabled(t *testing.T) {
+	var cfg SalmonCannonConfig
+	if err := yaml.Unmarshal([]byte(`SalmonBridges:
+  - SBName: default-fec
+  - SBName: disabled-fec
+    SBFECGroupSize: 0
+`), &cfg); err != nil {
+		t.Fatalf("failed to parse FEC config: %v", err)
+	}
+
+	if cfg.Bridges[0].FECGroupSize != nil {
+		t.Fatalf("omitted FECGroupSize should preserve the transport default, got %v", *cfg.Bridges[0].FECGroupSize)
+	}
+	if cfg.Bridges[1].FECGroupSize == nil || *cfg.Bridges[1].FECGroupSize != 0 {
+		t.Fatalf("explicit zero FECGroupSize should disable FEC, got %v", cfg.Bridges[1].FECGroupSize)
 	}
 }
 
