@@ -17,8 +17,10 @@
 #
 # By default this will apply netem only to UDP on the loopback interface (lo).
 # Important defaults can be overridden without editing the script:
-#   NETIF=lo NETEM_LIMIT=10000 TEST_WINDOW=64MB \
-#     TEST_BANDWIDTH=2G MIN_RECEIVER_MBIT=1000 ./netem_test.sh
+#   NETIF=lo NETEM_LIMIT=10000 TEST_RECEIVE_BUFFER=512MB \
+#     TEST_IN_FLIGHT=256MB \
+#     TEST_BANDWIDTH=6G TEST_PACKET_SIZE=8570 TEST_BATCH_SIZE=128 \
+#     TEST_FEC_GROUP_SIZE=16 MIN_RECEIVER_MBIT=2000 ./netem_test.sh
 #
 # Notes:
 #  - Requires `go`, `tc` (iproute2) and `sudo` (if not running as root).
@@ -38,8 +40,16 @@ SOCKS_PORT=1080
 
 SC_BIN="$BIN_DIR/sc"
 RATETEST_BIN="$BIN_DIR/salmon-rate"
-TEST_BANDWIDTH="${TEST_BANDWIDTH:-2G}"
-TEST_WINDOW="${TEST_WINDOW:-64MB}"
+TEST_BANDWIDTH="${TEST_BANDWIDTH:-6G}"
+# TEST_WINDOW remains a compatibility shorthand that sets both values. The
+# defaults are deliberately split: receive-side reordering needs a large ring,
+# while a smaller unacknowledged send window bounds retransmit amplification.
+LEGACY_TEST_WINDOW="${TEST_WINDOW:-}"
+TEST_RECEIVE_BUFFER="${TEST_RECEIVE_BUFFER:-${LEGACY_TEST_WINDOW:-512MB}}"
+TEST_IN_FLIGHT="${TEST_IN_FLIGHT:-${LEGACY_TEST_WINDOW:-256MB}}"
+TEST_PACKET_SIZE="${TEST_PACKET_SIZE:-8570}"
+TEST_BATCH_SIZE="${TEST_BATCH_SIZE:-128}"
+TEST_FEC_GROUP_SIZE="${TEST_FEC_GROUP_SIZE:-16}"
 
 # netem settings (Example 1 - hostile-ish)
 NETIF="${NETIF:-lo}"
@@ -49,9 +59,9 @@ NETEM_LOSS="${NETEM_LOSS:-10% 10%}"
 NETEM_REORDER="${NETEM_REORDER:-10% 10%}"
 NETEM_DUP="${NETEM_DUP:-5%}"
 NETEM_CORRUPT="${NETEM_CORRUPT:-5%}"
-MIN_RECEIVER_MBIT="${MIN_RECEIVER_MBIT:-1000}"
-# netem defaults to only 1,000 queued packets. At 2 Gbit/s, 50 ms of
-# one-way delay already holds about 1,471 8,500-byte datagrams, before
+MIN_RECEIVER_MBIT="${MIN_RECEIVER_MBIT:-2000}"
+# netem defaults to only 1,000 queued packets. At 6 Gbit/s, 50 ms of
+# one-way delay already holds about 4,376 8,570-byte datagrams, before
 # jitter, duplication, reordering, FEC, or recovery traffic. That default
 # therefore injects a large amount of queue-overflow loss on top of the loss
 # requested above. Keep enough BDP in the emulator for this profile.
@@ -141,15 +151,16 @@ SalmonBridges:
     SBSocksListenPort: 0
     SBSocksListenAddress: "127.0.0.1"
     SBIdleTimeout: 10s
-    SBInitialPacketSize: 8500
-    SBMaxRecieveBufferSize: ${TEST_WINDOW}
-    SBMaxBytesInFlight: ${TEST_WINDOW}
+    SBInitialPacketSize: ${TEST_PACKET_SIZE}
+    SBMaxRecieveBufferSize: ${TEST_RECEIVE_BUFFER}
+    SBMaxBytesInFlight: ${TEST_IN_FLIGHT}
     SBInitialRetransmitTimeout: 300ms
     SBMinRetransmitTimeout: 150ms
     SBTotalBandwidthLimit: ${TEST_BANDWIDTH}
     SBPacingDatagramOverhead: 66
     SBPacingMinimumDatagramSize: 84
-    SBFECGroupSize: 8
+    SBTransportBatchSize: ${TEST_BATCH_SIZE}
+    SBFECGroupSize: ${TEST_FEC_GROUP_SIZE}
     SBFEC2D: true
     SBInterfaceName: "lo"
 EOF
@@ -165,15 +176,16 @@ SalmonBridges:
     SBFarPort: ${FAR_PORT}
     SBFarIp: "127.0.0.1"
     SBIdleTimeout: 10s
-    SBInitialPacketSize: 8500
-    SBMaxRecieveBufferSize: ${TEST_WINDOW}
-    SBMaxBytesInFlight: ${TEST_WINDOW}
+    SBInitialPacketSize: ${TEST_PACKET_SIZE}
+    SBMaxRecieveBufferSize: ${TEST_RECEIVE_BUFFER}
+    SBMaxBytesInFlight: ${TEST_IN_FLIGHT}
     SBInitialRetransmitTimeout: 300ms
     SBMinRetransmitTimeout: 150ms
     SBTotalBandwidthLimit: ${TEST_BANDWIDTH}
     SBPacingDatagramOverhead: 66
     SBPacingMinimumDatagramSize: 84
-    SBFECGroupSize: 8
+    SBTransportBatchSize: ${TEST_BATCH_SIZE}
+    SBFECGroupSize: ${TEST_FEC_GROUP_SIZE}
     SBFEC2D: true
     SBInterfaceName: "lo"
 EOF

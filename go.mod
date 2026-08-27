@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/juju/ratelimit v1.0.2
-	github.com/sad-emu/anadromous v1.0.0
+	github.com/sad-emu/anadromous v1.0.1
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
 )
