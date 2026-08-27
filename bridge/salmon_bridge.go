@@ -2,13 +2,13 @@ package bridge
 
 import (
 	"crypto/rand"
-	"fmt"
 	"log"
 	"net"
 	"salmoncannon/connections"
 	"salmoncannon/limiter"
 	"salmoncannon/status"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/sad-emu/anadromous"
@@ -120,7 +120,7 @@ func (s *SalmonBridge) NewNearConn(host string, port int) (net.Conn, error) {
 		var readIv, writeIv, readKey, writeKey []byte
 
 		// 1) Send a small header carrying target address.
-		target := fmt.Sprintf("%s:%d", host, port)
+		target := net.JoinHostPort(host, strconv.Itoa(port))
 		if s.sharedSecret == "" {
 			if err := WriteTargetHeader(stream, target); err != nil {
 				log.Printf("NEAR: write header error: %v", err)

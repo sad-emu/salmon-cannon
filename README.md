@@ -4,13 +4,13 @@
 
 Salmon Cannon (`sc`) is a Linux TCP proxy for high-bandwidth links with delay,
 loss, reordering, duplication, and corruption. A near node exposes SOCKS5 and
-optional HTTP CONNECT listeners. Each accepted TCP connection is carried as a
-reliable, ordered stream over the custom Anadromous UDP transport to a far node,
-which opens the requested destination TCP connection.
+an optional HTTP/1.x forward-proxy listener. Each outbound TCP connection is
+carried as a reliable, ordered stream over the custom Anadromous UDP transport
+to a far node, which opens the requested destination TCP connection.
 
 ```text
-client -- TCP/SOCKS5 or HTTP CONNECT --> near sc
-       -- reliable multiplexed UDP --> far sc -- TCP --> destination
+client -- SOCKS5 or HTTP/1.x proxy --> near sc
+       -- reliable multiplexed UDP --> far sc -- TCP/TLS --> destination
 ```
 
 Salmon Cannon is aimed at provisioned links whose capacity and MTU are known.
@@ -21,7 +21,9 @@ the path.
 ## Current capabilities
 
 - SOCKS5 TCP `CONNECT` proxying.
-- Minimal HTTP `CONNECT` proxying.
+- HTTP/1.0 and HTTP/1.1 forward proxying for ordinary methods and request
+  bodies, persistent connections, streaming responses, trailers, HTTPS
+  `CONNECT` tunnels, and bidirectional `101 Upgrade` connections.
 - Multiple independently configured near/far bridges.
 - Reliable, ordered, multiplexed streams over UDP with ACK/NACK recovery,
   adaptive retransmission timers, and per-stream flow control.
@@ -34,7 +36,7 @@ the path.
 - Local clean-link and hostile-netem throughput regression scripts.
 
 > **Security warning:** Anadromous is not QUIC and provides no TLS, peer
-> authentication, or cryptographic integrity. SOCKS, HTTP CONNECT, and the API
+> authentication, or cryptographic integrity. SOCKS, the HTTP proxy, and the API
 > also have no usable authentication. `SBSharedSecret` adds unauthenticated
 > AES-256-CTR confidentiality to target metadata and proxied TCP bytes, but it
 > is not TLS or AEAD and does not authenticate either endpoint. Run Salmon
@@ -45,15 +47,9 @@ the path.
 
 - Linux. The Anadromous transport uses Linux-specific UDP and socket APIs.
 - Go 1.25 or newer, matching `go.mod`.
-- A sibling Anadromous checkout. The current development `go.mod` contains
-  `replace github.com/sad-emu/anadromous => ../anadromous`, so the directory
-  layout must currently be:
 
-```text
-workspace/
-├── anadromous/
-└── salmon-cannon/
-```
+The current module depends on the published Anadromous module, so a separate
+sibling checkout is not required.
 
 Build the proxy and optional rate-test tool from the Salmon Cannon repository:
 
@@ -91,6 +87,7 @@ SalmonBridges:
     SBConnect: true
     SBSocksListenAddress: "127.0.0.1"
     SBSocksListenPort: 1080
+    SBHttpListenPort: 8080
     SBFarIp: "203.0.113.20"
     SBFarPort: 55001
     SBStatusCheckFrequency: 2s
@@ -113,6 +110,19 @@ resolution on the far side:
 ```bash
 curl --socks5-hostname 127.0.0.1:1080 https://example.com/
 ```
+
+The HTTP listener supports both ordinary HTTP proxy requests and HTTPS tunnels:
+
+```bash
+curl --proxy http://127.0.0.1:8080 http://example.com/
+curl --proxy http://127.0.0.1:8080 https://example.com/
+```
+
+For the HTTPS request, curl uses `CONNECT`; TLS remains end-to-end between curl
+and the destination. Ordinary absolute-form `http://` and `https://` proxy
+requests are also forwarded. The latter causes the near proxy to establish and
+validate TLS to the origin itself, while `CONNECT` remains the normal choice for
+end-to-end HTTPS.
 
 Both endpoints must use matching datagram-size, FEC, and shared-secret settings.
 
@@ -264,9 +274,9 @@ historical `Recieve` misspelling.
 | --- | --- | --- |
 | `SBName` | Bridge identifier used by logging, status, and redirects. | Empty |
 | `SBConnect` | `true` selects near/dial mode; `false` selects far/listen mode. | `false` |
-| `SBSocksListenAddress` | Near-only bind address shared by the SOCKS and HTTP CONNECT listeners. | `127.0.0.1` |
+| `SBSocksListenAddress` | Near-only bind address shared by the SOCKS and HTTP forward-proxy listeners. | `127.0.0.1` |
 | `SBSocksListenPort` | Near-only SOCKS5 TCP listener port. | `0` |
-| `SBHttpListenPort` | Near-only minimal HTTP CONNECT listener; `0` disables it. | `0` |
+| `SBHttpListenPort` | Near-only HTTP/1.x forward-proxy listener; `0` disables it. | `0` |
 | `SBFarPort` | Near-only remote UDP port to dial. | Copies `SBNearPort` if omitted |
 | `SBNearPort` | Despite its name, the UDP listen port used by the far node. | Copies `SBFarPort` if omitted |
 | `SBFarIp` | Near: remote IP/hostname to dial. Far: optional exact numeric source-IP filter for incoming transport connections. | Empty |
@@ -389,8 +399,35 @@ SocksRedirect:
 
 Matching is case-sensitive `strings.Contains` matching. Go map iteration order
 is not stable, so overlapping patterns can select nondeterministically and
-should be avoided. Every target name must identify a configured `SBConnect:
-true` bridge.
+should be avoided. Every target name must identify a configured near bridge
+(`SBConnect: true`).
+
+## HTTP forward proxy
+
+`SBHttpListenPort` enables a standard HTTP/1.x proxy frontend on the same bind
+address as the bridge's SOCKS listener. It supports:
+
+- Absolute-form HTTP requests using methods such as `GET`, `HEAD`, `POST`,
+  `PUT`, `PATCH`, `DELETE`, and `OPTIONS`, including request bodies.
+- Persistent client and origin connections, chunked bodies, response trailers,
+  streaming responses, and `Expect: 100-continue` handling.
+- HTTPS and arbitrary TCP tunnelling with `CONNECT`. A missing CONNECT port
+  defaults to 443, and bytes buffered immediately after the CONNECT headers are
+  preserved.
+- Bidirectional HTTP `101 Switching Protocols` upgrades, including WebSocket
+  style connections.
+- HTTP/2 to HTTPS origins when negotiated by the outbound Go transport. The
+  client-facing proxy protocol remains HTTP/1.x.
+
+The proxy removes hop-by-hop and `Proxy-Authorization` headers before sending
+ordinary requests to origins, adds a `Via` header, preserves end-to-end headers
+and trailers, and applies `SBAllowedInAddresses` to HTTP clients. Destination
+requests are still checked by the far bridge's `SBAllowedOutAddresses` setting.
+
+There is no proxy authentication, caching, content filtering, PAC hosting, or
+MITM TLS interception. Bind the listener to a trusted address and use a
+firewall; HTTPS `CONNECT` hides payloads from the HTTP frontend but does not
+authenticate or encrypt the Salmon UDP transport.
 
 ## Status API
 
@@ -467,8 +504,8 @@ For high throughput, also verify:
 ## Known limitations
 
 - No SOCKS5 `BIND` or `UDP ASSOCIATE` support.
-- The HTTP listener supports `CONNECT` only, not ordinary forward-proxy HTTP
-  requests.
+- The client-facing HTTP proxy supports HTTP/1.x, not HTTP/2 proxy connections.
+- No HTTP proxy authentication, caching, PAC server, or TLS interception.
 - SOCKS username/password validation is not implemented. The current stub
   accepts arbitrary credentials and logs them; do not send or rely on proxy
   credentials.

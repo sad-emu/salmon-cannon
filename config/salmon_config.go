@@ -141,7 +141,7 @@ type SalmonBridgeConfig struct {
 	FarIp                string         `yaml:"SBFarIp"`
 
 	SocksListenAddress        string         `yaml:"SBSocksListenAddress,omitempty"`        // e.g. "127.0.0.1"
-	HttpListenPort            int            `yaml:"SBHttpListenPort,omitempty"`            // optional HTTP proxy listen port (near only)
+	HttpListenPort            int            `yaml:"SBHttpListenPort,omitempty"`            // optional HTTP/1.x forward-proxy listen port (near only)
 	IdleTimeout               DurationString `yaml:"SBIdleTimeout,omitempty"`               // default "10s"
 	InitialRetransmitTimeout  DurationString `yaml:"SBInitialRetransmitTimeout,omitempty"`  // defaults to Anadromous's initial RTO
 	MinRetransmitTimeout      DurationString `yaml:"SBMinRetransmitTimeout,omitempty"`      // defaults to Anadromous's adaptive RTO floor

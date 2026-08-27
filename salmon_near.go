@@ -35,27 +35,6 @@ func initNear(cfg *config.SalmonBridgeConfig, near *SalmonNear) {
 	}
 }
 
-func initHTTPNear(cfg *config.SalmonBridgeConfig, near *SalmonNear) {
-	if cfg.HttpListenPort <= 0 {
-		return
-	}
-	addr := cfg.SocksListenAddress + ":" + strconv.Itoa(cfg.HttpListenPort)
-	log.Printf("NEAR: Initializing HTTP proxy listener for bridge %s on %s", cfg.Name, addr)
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		log.Fatalf("NEAR: Failed to listen HTTP on %s: %v", addr, err)
-	}
-	log.Printf("NEAR: HTTP proxy listening on %s", addr)
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			log.Printf("NEAR: HTTP accept error: %v", err)
-			continue
-		}
-		go near.HandleHTTP(conn)
-	}
-}
-
 func relayConnData(src net.Conn, dst net.Conn) {
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -102,6 +81,7 @@ type SalmonNear struct {
 	currentBridge *bridge.SalmonBridge
 	bridgeName    string
 	config        *config.SalmonBridgeConfig
+	httpProxy     *salmonHTTPProxy
 }
 
 func (n *SalmonNear) runStatusChecks(intervalMs int) {
@@ -145,6 +125,7 @@ func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
 		bridgeName:    config.Name,
 		config:        config,
 	}
+	near.httpProxy = newSalmonHTTPProxy(near, nil)
 
 	if config.StatusCheckFrequency > 0 {
 		log.Printf("NEAR: Bridge %s starting status checks every %d ms", near.bridgeName, config.StatusCheckFrequency.Duration().Milliseconds())
@@ -197,81 +178,6 @@ func (n *SalmonNear) HandleRequest(conn net.Conn) {
 
 	// 5. Reply: success
 	conn.Write(socks.ReplySuccess)
-
-	relayConnData(conn, stream)
-}
-
-// HandleHTTP implements a minimal HTTP CONNECT proxy
-func (n *SalmonNear) HandleHTTP(conn net.Conn) {
-	status.GlobalConnMonitorRef.IncHTTP()
-	defer func() {
-		conn.Close()
-		status.GlobalConnMonitorRef.DecHTTP()
-	}()
-	// Minimal parse: read first line
-	buf := make([]byte, 4096)
-	nread, err := conn.Read(buf)
-	if err != nil {
-		return
-	}
-	lineEnd := -1
-	for i := 0; i < nread-1; i++ {
-		if buf[i] == '\r' && buf[i+1] == '\n' {
-			lineEnd = i
-			break
-		}
-	}
-	if lineEnd < 0 {
-		return
-	}
-	line := string(buf[:lineEnd])
-	// Expect: CONNECT host:port HTTP/1.1
-	var method, target, proto string
-	_, _ = method, proto
-	// naive split
-	parts := make([]string, 0, 3)
-	start := 0
-	for i := 0; i <= len(line); i++ {
-		if i == len(line) || line[i] == ' ' {
-			if i > start {
-				parts = append(parts, line[start:i])
-			}
-			start = i + 1
-		}
-	}
-	if len(parts) < 2 || parts[0] != "CONNECT" {
-		conn.Write([]byte("HTTP/1.1 405 Method Not Allowed\r\n\r\n"))
-		return
-	}
-	target = parts[1]
-	// parse host:port
-	host, portStr, err := net.SplitHostPort(target)
-	if err != nil {
-		conn.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\n"))
-		return
-	}
-	// drain remaining headers until CRLFCRLF
-	// simplistic: if more bytes were read beyond first line, keep them in a buffer to forward after connect
-	// For CONNECT, there should be only headers and then raw tunnel.
-
-	// Open bridge stream to far
-	// parse port
-	port, err := net.LookupPort("tcp", portStr)
-	if err != nil {
-		conn.Write([]byte("HTTP/1.1 400 Bad Request\r\n\r\n"))
-		return
-	}
-	stream, err := n.currentBridge.NewNearConn(host, port)
-	if err != nil {
-		conn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
-		return
-	}
-	defer func() {
-		stream.Close()
-		//log.Printf("NEAR: Bridge %s closed HTTP stream to %s:%d", n.bridgeName, host, port)
-	}()
-	// respond OK
-	conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 
 	relayConnData(conn, stream)
 }
