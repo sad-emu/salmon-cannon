@@ -19,6 +19,4 @@ SalmonBridges:
     SBFarIp: "127.0.0.1"
     SBIdleTimeout: 60s
     SBInitialPacketSize: 8400
-    SBRecieveWindow: 100M
-    SBMaxRecieveWindow: 400M
     SBTotalBandwidthLimit: 700M

@@ -6,11 +6,9 @@ import (
 	"os"
 	"salmoncannon/api"
 	"salmoncannon/config"
-	"salmoncannon/connections"
 	"salmoncannon/status"
 	"strconv"
 	"sync"
-	"time"
 
 	"gopkg.in/natefinch/lumberjack.v2"
 )
@@ -46,19 +44,6 @@ func main() {
 		})
 		log.Printf("Salmon Cannon version %s starting...", VERSION)
 		log.Printf("Loaded %d salmon bridges", len(cannonConfig.Bridges))
-	}
-
-	// Setup connection pool parameters
-	if cannonConfig.QuicConfig != nil {
-		if cannonConfig.QuicConfig.MaxConnectionsPerBridge > 0 {
-			connections.MaxConnectionsPerBridge = int(cannonConfig.QuicConfig.MaxConnectionsPerBridge)
-		}
-		if cannonConfig.QuicConfig.MaxStreamsPerConnection > 0 {
-			connections.MaxStreamsPerConnection = int32(cannonConfig.QuicConfig.MaxStreamsPerConnection)
-		}
-		if cannonConfig.QuicConfig.IdleCleanupTimeout > 0 {
-			connections.ConnectionIdleTimeout = time.Duration(cannonConfig.QuicConfig.IdleCleanupTimeout)
-		}
 	}
 
 	// Setup API server if configured

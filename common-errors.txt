@@ -1,18 +1,17 @@
-ERROR: 
-failed to sufficiently increase receive buffer size 
-(was: 208 kiB, wanted: 7168 kiB, got: 416 kiB). 
-See https://github.com/quic-go/quic-go/wiki/UDP-Buffer-Sizes for details.
+ANADROMOUS UDP SOCKET BUFFER LIMITS
 
-FIX:
+Anadromous requests 16 MiB Linux UDP send and receive socket buffers. Linux may
+clamp those requests to net.core.wmem_max and net.core.rmem_max. Inspect the
+limits on both bridge endpoints with:
 
-Add these lines to /etc/sysctl.conf:
+sysctl net.core.wmem_max net.core.rmem_max
 
-Code
-net.core.wmem_max=838860800
-net.core.wmem_default=83886080
-net.core.rmem_max=838860800
-net.core.rmem_default=83886080
+If they are below the transport request, choose limits appropriate for the host
+and workload. For example, these temporary settings provide 32 MiB of room:
 
-Then apply with
+sudo sysctl -w net.core.wmem_max=33554432
+sudo sysctl -w net.core.rmem_max=33554432
 
-sudo sysctl -p
+Persist changes through the operating system's normal sysctl configuration only
+after validating memory use. SBMaxRecieveBufferSize is a separate per-stream
+application buffer and does not configure the Linux UDP socket buffers.

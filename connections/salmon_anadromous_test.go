@@ -2,6 +2,7 @@ package connections
 
 import (
 	"context"
+	"errors"
 	"net"
 	"sync"
 	"testing"
@@ -170,41 +171,10 @@ func TestConnectionToInvalidAddress(t *testing.T) {
 		t.Error("Expected error when connecting to invalid host, got nil")
 	}
 
-	// Verify no connections were created
-	sq.connectionsMu.RLock()
-	connCount := len(sq.connections)
-	sq.connectionsMu.RUnlock()
-
-	if connCount != 0 {
-		t.Errorf("Expected 0 connections after failed connection attempt, got %d", connCount)
-	}
-}
-
-func TestConnectionCreationFailure(t *testing.T) {
-	netcfg := BridgeNetConfig{IdleTimeout: 2 * time.Second}
-	// Use invalid address to test error handling
-	sq := NewSalmonAnadromous(1, "invalid-host", "test-bridge", netcfg, "")
-
-	// Attempt to open stream should fail when trying to create connection
-	_, cleanup, err, _ := sq.OpenStream()
-	if err == nil {
-		if cleanup != nil {
-			cleanup()
-		}
-		t.Error("Expected error when creating connection to invalid host, got nil")
-	}
-}
-
-func TestOpenStreamWithoutConnection(t *testing.T) {
-	netcfg := BridgeNetConfig{IdleTimeout: 2 * time.Second}
-	sq := NewSalmonAnadromous(1, "invalid-host", "test-bridge", netcfg, "")
-
-	_, cleanup, err, _ := sq.OpenStream()
-	if err == nil {
-		if cleanup != nil {
-			cleanup()
-		}
-		t.Error("Expected error when opening stream without connection, got nil")
+	sq.connectionMu.Lock()
+	defer sq.connectionMu.Unlock()
+	if sq.connection != nil {
+		t.Error("Expected no connection after failed connection attempt")
 	}
 }
 
@@ -381,32 +351,8 @@ func TestConcurrentStreamOpening(t *testing.T) {
 		}
 	}
 
-	// Allow some errors due to test timing
-	if errorCount == numStreams {
-		t.Error("All streams failed to open")
-	}
-}
-
-func TestConnectionPoolFailure(t *testing.T) {
-	netcfg := BridgeNetConfig{IdleTimeout: 2 * time.Second}
-	sq := NewSalmonAnadromous(1, "invalid-host", "test-bridge", netcfg, "")
-
-	// Try to open stream to invalid host (should fail)
-	_, cleanup, err, _ := sq.OpenStream()
-	if err == nil {
-		if cleanup != nil {
-			cleanup()
-		}
-		t.Error("Expected error when opening stream to invalid host, got nil")
-	}
-
-	// Verify no connections were created
-	sq.connectionsMu.RLock()
-	connCount := len(sq.connections)
-	sq.connectionsMu.RUnlock()
-
-	if connCount != 0 {
-		t.Errorf("Expected 0 connections after failed connect, got %d", connCount)
+	if errorCount != 0 {
+		t.Fatalf("%d of %d within-limit streams failed to open", errorCount, numStreams)
 	}
 }
 
@@ -414,7 +360,7 @@ func TestMutexSafety(t *testing.T) {
 	netcfg := BridgeNetConfig{IdleTimeout: 2 * time.Second}
 	sq := NewSalmonAnadromous(1, "invalid-host", "test-bridge", netcfg, "")
 
-	// Try to access connection pool concurrently
+	// Try to initialize the one connection concurrently.
 	var wg sync.WaitGroup
 	for i := 0; i < 3; i++ {
 		wg.Add(1)
@@ -450,7 +396,7 @@ func TestOpenStreamInvalidInterface(t *testing.T) {
 	}
 }
 
-func TestConnectionPooling(t *testing.T) {
+func TestSingleConnectionMultiplexesStreams(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
@@ -459,9 +405,6 @@ func TestConnectionPooling(t *testing.T) {
 		IdleTimeout: 5 * time.Second,
 		MaxStreams:  100,
 	}
-
-	MaxStreamsPerConnection = 200
-	MaxConnectionsPerBridge = 1
 
 	// Start server
 	listener, err := anadromous.Listen("127.0.0.1:0", netcfg.options("")...)
@@ -476,13 +419,16 @@ func TestConnectionPooling(t *testing.T) {
 		port = addr.Port
 	}
 
-	// Server goroutine that handles multiple connections and streams
+	// The server continues accepting so the test can detect an accidental
+	// second transport connection.
+	acceptedConnections := make(chan struct{}, 2)
 	go func() {
 		for {
 			conn, err := listener.Accept(context.Background())
 			if err != nil {
 				return
 			}
+			acceptedConnections <- struct{}{}
 			go func(c *anadromous.Connection) {
 				defer c.CloseWithError(0, "test done")
 				for {
@@ -506,19 +452,21 @@ func TestConnectionPooling(t *testing.T) {
 	// Create client
 	sq := NewSalmonAnadromous(port, "127.0.0.1", "test-bridge", netcfg, "")
 
-	// Open multiple streams to trigger connection pooling
+	// Open multiple streams concurrently on the bridge connection.
 	var wg sync.WaitGroup
 	numStreams := 5
+	connectionsUsed := make(chan *anadromous.Connection, numStreams)
 
 	for i := 0; i < numStreams; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			stream, cleanup, err, _ := sq.OpenStream()
+			stream, cleanup, err, conn := sq.OpenStream()
 			if err != nil {
-				t.Logf("Stream %d error: %v", id, err)
+				t.Errorf("stream %d: %v", id, err)
 				return
 			}
+			connectionsUsed <- conn
 			defer cleanup()
 			defer stream.Close()
 
@@ -529,31 +477,109 @@ func TestConnectionPooling(t *testing.T) {
 
 	wg.Wait()
 
-	// Check that connections were created
-	sq.connectionsMu.RLock()
-	connCount := len(sq.connections)
-	sq.connectionsMu.RUnlock()
-
-	if connCount == 0 {
-		t.Error("Expected at least one connection to be created")
+	close(connectionsUsed)
+	var first *anadromous.Connection
+	for conn := range connectionsUsed {
+		if first == nil {
+			first = conn
+			continue
+		}
+		if conn != first {
+			t.Fatal("streams used more than one transport connection")
+		}
 	}
 
-	t.Logf("Created %d connection(s) for %d streams", connCount, numStreams)
+	select {
+	case <-acceptedConnections:
+	case <-time.After(2 * time.Second):
+		t.Fatal("server did not accept the transport connection")
+	}
+	select {
+	case <-acceptedConnections:
+		t.Fatal("server accepted more than one transport connection")
+	case <-time.After(100 * time.Millisecond):
+	}
 }
 
-func TestMaxConcurrentStreamOpeningFails(t *testing.T) {
+func TestMaxStreamsDoesNotCreateSecondConnection(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	netcfg := BridgeNetConfig{
+		IdleTimeout: 2 * time.Second,
+		MaxStreams:  2,
+	}
+	listener, err := anadromous.Listen("127.0.0.1:0", netcfg.options("")...)
+	if err != nil {
+		t.Fatalf("start listener: %v", err)
+	}
+	defer listener.Close()
+
+	accepted := make(chan *anadromous.Connection, 2)
+	go func() {
+		for {
+			conn, err := listener.Accept(context.Background())
+			if err != nil {
+				return
+			}
+			accepted <- conn
+		}
+	}()
+
+	udpAddr, err := net.ResolveUDPAddr("udp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("resolve listener address: %v", err)
+	}
+	sq := NewSalmonAnadromous(udpAddr.Port, "127.0.0.1", "capacity-test", netcfg, "")
+
+	stream1, cleanup1, err, conn1 := sq.OpenStream()
+	if err != nil {
+		t.Fatalf("open first stream: %v", err)
+	}
+	defer cleanup1()
+	defer stream1.CancelRead(0)
+	defer stream1.CancelWrite(0)
+
+	stream2, cleanup2, err, conn2 := sq.OpenStream()
+	if err != nil {
+		t.Fatalf("open second stream: %v", err)
+	}
+	defer cleanup2()
+	defer stream2.CancelRead(0)
+	defer stream2.CancelWrite(0)
+	if conn2 != conn1 {
+		t.Fatal("streams were opened on different transport connections")
+	}
+
+	if _, _, err, _ := sq.OpenStream(); !errors.Is(err, anadromous.ErrMaxStreams) {
+		t.Fatalf("third stream error = %v, want %v", err, anadromous.ErrMaxStreams)
+	}
+
+	select {
+	case serverConn := <-accepted:
+		defer serverConn.CloseWithError(0, "test done")
+	case <-time.After(2 * time.Second):
+		t.Fatal("server did not accept the transport connection")
+	}
+	select {
+	case second := <-accepted:
+		second.CloseWithError(0, "unexpected second connection")
+		t.Fatal("stream saturation created a second transport connection")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestConcurrentOpenHonorsMaxStreams(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
 
 	var streamsToTest int = 100
 
-	MaxStreamsPerConnection = 10
-	MaxConnectionsPerBridge = 1
-
 	netcfg := BridgeNetConfig{
 		IdleTimeout: 1 * time.Second,
-		MaxStreams:  streamsToTest,
+		MaxStreams:  10,
 	}
 
 	// Start server
@@ -632,21 +658,18 @@ func TestMaxConcurrentStreamOpeningFails(t *testing.T) {
 		}
 	}
 
-	// Expect errors as we have limited max streams/connections
+	// Expect errors because one connection is limited to 10 concurrent streams.
 	if errorCount <= 0 {
 		t.Error("Some streams should have failed to open")
 	}
 }
 
-func TestMaxConcurrentStreamOpening(t *testing.T) {
+func TestMaxConcurrentStreamsUseSingleConnection(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
 
 	var streamsToTest int = 100
-
-	MaxStreamsPerConnection = 50
-	MaxConnectionsPerBridge = 2
 
 	netcfg := BridgeNetConfig{
 		IdleTimeout: 1 * time.Second,
@@ -740,12 +763,9 @@ func TestMaxConcurrentStreamOpening(t *testing.T) {
 	}
 }
 
-// TestStaleConnectionRecoveryWithMaxBridges1 tests the production scenario where:
-//   - MaxConnectionsPerBridge = 1 (only one connection allowed in the pool)
-//   - Far side goes down and comes back up (server restart scenario)
-//   - Near side must detect the stale connection, drop it from the pool,
-//     and establish a fresh connection to the restarted far side.
-func TestStaleConnectionRecoveryWithMaxBridges1(t *testing.T) {
+// TestStaleConnectionRecovery verifies that a dead bridge connection is
+// discarded and replaced after the far side restarts.
+func TestStaleConnectionRecovery(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
@@ -754,10 +774,6 @@ func TestStaleConnectionRecoveryWithMaxBridges1(t *testing.T) {
 		IdleTimeout: 2 * time.Second,
 		MaxStreams:  10,
 	}
-
-	// Set to 1 connection max (production scenario)
-	MaxStreamsPerConnection = 10
-	MaxConnectionsPerBridge = 1
 
 	// Start first server
 	listener1, err := anadromous.Listen("127.0.0.1:0", netcfg.options("")...)
@@ -803,19 +819,20 @@ func TestStaleConnectionRecoveryWithMaxBridges1(t *testing.T) {
 	sq := NewSalmonAnadromous(port, "127.0.0.1", "test-bridge", netcfg, "")
 
 	// Successfully open a stream to establish connection
-	stream1, cleanup1, err, _ := sq.OpenStream()
+	stream1, cleanup1, err, firstConnection := sq.OpenStream()
 	if err != nil {
 		t.Fatalf("Failed to open first stream: %v", err)
 	}
 
-	// Verify connection was created
-	sq.connectionsMu.RLock()
-	connCount := len(sq.connections)
-	sq.connectionsMu.RUnlock()
-
-	if connCount != 1 {
-		t.Fatalf("Expected 1 connection, got %d", connCount)
+	if firstConnection == nil {
+		t.Fatal("expected the first bridge connection to be created")
 	}
+	sq.connectionMu.Lock()
+	if sq.connection != firstConnection {
+		sq.connectionMu.Unlock()
+		t.Fatal("first stream was not opened on the bridge connection")
+	}
+	sq.connectionMu.Unlock()
 
 	// Write some data to confirm it works
 	testData := []byte("test-data-1")
@@ -887,45 +904,35 @@ func TestStaleConnectionRecoveryWithMaxBridges1(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	t.Log("Second server started")
 
-	// The old connection may still be in the pool
-	sq.connectionsMu.RLock()
-	oldConnCount := len(sq.connections)
-	sq.connectionsMu.RUnlock()
-
-	t.Logf("Connections in pool after server restart: %d", oldConnCount)
-
-	// Try to open a new stream - the first attempt may fail if it picks the
-	// stale connection, but that failure must evict it from the pool so the
-	// retry can dial fresh.
-	stream2, cleanup2, err, _ := sq.OpenStream()
+	// The first attempt may observe the stale connection. That failure must
+	// discard it so a retry can dial the restarted far side.
+	stream2, cleanup2, err, secondConnection := sq.OpenStream()
 
 	if err != nil {
 		t.Logf("OpenStream failed on stale connection, retrying: %v", err)
-		stream2, cleanup2, err, _ = sq.OpenStream()
+		stream2, cleanup2, err, secondConnection = sq.OpenStream()
 	}
 
-	if err == nil {
-		// If we got a stream, try to use it
-		testData2 := []byte("test-data-2")
-		_, writeErr := stream2.Write(testData2)
+	if err != nil {
+		t.Fatalf("open stream after far-side restart: %v", err)
+	}
+	defer cleanup2()
+	defer stream2.Close()
+	if secondConnection == firstConnection {
+		t.Fatal("stale bridge connection was not replaced")
+	}
 
-		if writeErr != nil {
-			t.Logf("Write failed (expected with stale connection): %v", writeErr)
-		}
-
-		// Try to read
-		buf2 := make([]byte, 100)
-		stream2.SetReadDeadline(time.Now().Add(2 * time.Second))
-		_, readErr := stream2.Read(buf2)
-
-		if readErr != nil {
-			t.Logf("Read failed (expected with stale connection): %v", readErr)
-		}
-
-		stream2.Close()
-		cleanup2()
-	} else {
-		t.Logf("OpenStream failed after retry: %v", err)
-		t.Error("BUG REPRODUCED: Cannot open new stream because stale connection is blocking the pool")
+	testData2 := []byte("test-data-2")
+	if _, err := stream2.Write(testData2); err != nil {
+		t.Fatalf("write through replacement connection: %v", err)
+	}
+	buf2 := make([]byte, len(testData2))
+	stream2.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n, err = stream2.Read(buf2)
+	if err != nil {
+		t.Fatalf("read through replacement connection: %v", err)
+	}
+	if string(buf2[:n]) != string(testData2) {
+		t.Fatalf("replacement echo = %q, want %q", buf2[:n], testData2)
 	}
 }

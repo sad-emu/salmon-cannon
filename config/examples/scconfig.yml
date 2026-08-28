@@ -36,6 +36,7 @@ SalmonBridges:
     SBHttpListenPort: 8080
     SBSocksListenAddress: "127.0.0.1"
     SBIdleTimeout: 1m
+    SBMaxStreams: 500
     SBInitialPacketSize: 1350
     SBTotalBandwidthLimit: 100M
     SBMaxRecieveBufferSize: 2GB
@@ -51,6 +52,7 @@ SalmonBridges:
     SBConnect: false
     SBNearPort: 55002
     SBIdleTimeout: 1m
+    SBMaxStreams: 500
     SBInitialPacketSize: 1350
     SBTotalBandwidthLimit: 100M
     SBMaxRecieveBufferSize: 2GB

@@ -103,7 +103,7 @@ func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
 		MinRetransmitTimeout:      config.MinRetransmitTimeout.Duration(),
 		StreamRecvBuffer:          int(config.MaxRecieveBufferSize),
 		PacketSize:                config.InitialPacketSize,
-		MaxStreams:                socks.MaxConnections,
+		MaxStreams:                config.MaxStreams,
 		MaxBytesInFlight:          int(config.MaxBytesInFlight),
 		FECGroupSize:              config.FECGroupSize,
 		FEC2D:                     config.FEC2D,
@@ -118,7 +118,7 @@ func NewSalmonNear(config *config.SalmonBridgeConfig) (*SalmonNear, error) {
 	status.GlobalConnMonitorRef.RegisterLimiter(config.Name, sl)
 
 	salmonBridge := bridge.NewSalmonBridge(config.Name, bridgeAddress, bridgePort,
-		netcfg, sl, config.Connect, config.InterfaceName, config.AllowedOutAddresses, config.SharedSecret)
+		netcfg, sl, config.InterfaceName, config.AllowedOutAddresses, config.SharedSecret)
 
 	near := &SalmonNear{
 		currentBridge: salmonBridge,

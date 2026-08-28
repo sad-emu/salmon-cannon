@@ -19,24 +19,6 @@ type GlobalLogConfig struct {
 	Compress   bool   `yaml:"Compress,omitempty"`
 }
 
-type QuicConfig struct {
-	MaxConnectionsPerBridge int            `yaml:"MaxConnectionsPerBridge,omitempty"`
-	MaxStreamsPerConnection int            `yaml:"MaxStreamsPerConnection,omitempty"`
-	IdleCleanupTimeout      DurationString `yaml:"IdleCleanupTimeout,omitempty"` // seconds
-}
-
-func (q *QuicConfig) SetDefaults() {
-	if q.MaxConnectionsPerBridge == 0 {
-		q.MaxConnectionsPerBridge = 1
-	}
-	if q.MaxStreamsPerConnection == 0 {
-		q.MaxStreamsPerConnection = 500
-	}
-	if q.IdleCleanupTimeout == 0 {
-		q.IdleCleanupTimeout = DurationString(5 * time.Minute)
-	}
-}
-
 type ApiConfig struct {
 	Hostname string `yaml:"Hostname,omitempty"`
 	Port     int    `yaml:"Port,omitempty"`
@@ -146,6 +128,7 @@ type SalmonBridgeConfig struct {
 	InitialRetransmitTimeout  DurationString `yaml:"SBInitialRetransmitTimeout,omitempty"`  // defaults to Anadromous's initial RTO
 	MinRetransmitTimeout      DurationString `yaml:"SBMinRetransmitTimeout,omitempty"`      // defaults to Anadromous's adaptive RTO floor
 	InitialPacketSize         int            `yaml:"SBInitialPacketSize,omitempty"`         // default 1350
+	MaxStreams                int            `yaml:"SBMaxStreams,omitempty"`                // default 500
 	TotalBandwidthLimit       SizeString     `yaml:"SBTotalBandwidthLimit,omitempty"`       // default "100M"
 	MaxRecieveBufferSize      SizeString     `yaml:"SBMaxRecieveBufferSize,omitempty"`      // default "500MB"
 	MaxBytesInFlight          SizeString     `yaml:"SBMaxBytesInFlight,omitempty"`          // defaults to Anadromous's derived limit
@@ -176,7 +159,6 @@ type SalmonCannonConfig struct {
 	GlobalLog           *GlobalLogConfig     `yaml:"GlobalLog,omitempty"`
 	ApiConfig           *ApiConfig           `yaml:"ApiConfig,omitempty"`
 	SocksRedirectConfig *SocksRedirectConfig `yaml:"SocksRedirect,omitempty"`
-	QuicConfig          *QuicConfig          `yaml:"QuicConfig,omitempty"`
 }
 
 // SetDefaults sets default values for optional fields
@@ -203,6 +185,9 @@ func (c *SalmonCannonConfig) SetDefaults() {
 		if b.InitialPacketSize == 0 {
 			c.Bridges[i].InitialPacketSize = 1350
 		}
+		if b.MaxStreams == 0 {
+			c.Bridges[i].MaxStreams = 500
+		}
 		if b.TotalBandwidthLimit == 0 {
 			c.Bridges[i].TotalBandwidthLimit = -1
 		} else {
@@ -213,8 +198,6 @@ func (c *SalmonCannonConfig) SetDefaults() {
 		}
 		if b.MaxRecieveBufferSize == 0 {
 			c.Bridges[i].MaxRecieveBufferSize = SizeString(419430400) // 400MB
-		} else if b.MaxRecieveBufferSize <= 1024*1024*7 {
-			fmt.Errorf("MaxBufferSize is too low. Cannot be below 7MB.")
 		}
 	}
 
@@ -225,23 +208,6 @@ func (c *SalmonCannonConfig) SetDefaults() {
 		}
 		if b.RouteMap == nil {
 			c.Bounces[i].RouteMap = make(map[string]string)
-		}
-	}
-	if c.QuicConfig == nil {
-		c.QuicConfig = &QuicConfig{
-			MaxConnectionsPerBridge: 1,
-			MaxStreamsPerConnection: 500,
-			IdleCleanupTimeout:      DurationString(5 * time.Minute),
-		}
-	} else {
-		if c.QuicConfig.MaxConnectionsPerBridge == 0 {
-			c.QuicConfig.MaxConnectionsPerBridge = 500
-		}
-		if c.QuicConfig.MaxStreamsPerConnection == 0 {
-			c.QuicConfig.MaxStreamsPerConnection = 100
-		}
-		if c.QuicConfig.IdleCleanupTimeout == 0 {
-			c.QuicConfig.IdleCleanupTimeout = DurationString(5 * time.Minute)
 		}
 	}
 	// Set global log defaults if not provided

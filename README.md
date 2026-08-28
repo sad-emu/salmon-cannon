@@ -124,7 +124,8 @@ requests are also forwarded. The latter causes the near proxy to establish and
 validate TLS to the origin itself, while `CONNECT` remains the normal choice for
 end-to-end HTTPS.
 
-Both endpoints must use matching datagram-size, FEC, and shared-secret settings.
+Both endpoints should use matching datagram-size, maximum-stream, FEC, and
+shared-secret settings.
 
 ## Maximum-throughput starting point
 
@@ -151,6 +152,7 @@ SalmonBridges:
     SBFarPort: 55001
 
     SBIdleTimeout: 1m
+    SBMaxStreams: 500
     SBInitialPacketSize: 8570
     SBMaxRecieveBufferSize: 512MB
     SBMaxBytesInFlight: 256MB
@@ -166,14 +168,6 @@ SalmonBridges:
     # Avoid parity overhead on a clean path.
     SBFECGroupSize: 0
     SBFEC2D: false
-
-# The legacy name remains part of the current YAML schema. Multiple transport
-# connections help concurrent TCP flows; one TCP flow is not striped across
-# the pool.
-QuicConfig:
-  MaxConnectionsPerBridge: 8
-  MaxStreamsPerConnection: 500
-  IdleCleanupTimeout: 5m
 ```
 
 Far configuration:
@@ -186,6 +180,7 @@ SalmonBridges:
     SBFarIp: "198.51.100.10"
 
     SBIdleTimeout: 1m
+    SBMaxStreams: 500
     SBInitialPacketSize: 8570
     SBMaxRecieveBufferSize: 512MB
     SBMaxBytesInFlight: 256MB
@@ -220,6 +215,7 @@ Its current transport defaults are:
 
 - 6 Gbit/s pacing budget.
 - 8,570-byte datagrams.
+- 500 concurrent streams over one transport connection.
 - 512 MB per-stream receive ring and 256 MB in-flight cap.
 - Batch size 128.
 - FEC group 16 with 2D parity, costing 12.5% parity before retransmissions.
@@ -291,6 +287,7 @@ numeric source IP; it is not hostname, CIDR, or cryptographic authentication.
 | Field | Meaning | Default |
 | --- | --- | --- |
 | `SBInitialPacketSize` | Maximum full UDP datagram size in bytes. Both endpoints must match; there is no PMTU discovery. | `1350` |
+| `SBMaxStreams` | Maximum concurrent proxy streams multiplexed over the bridge's single transport connection. Both endpoints should match. | `500` |
 | `SBInitialRetransmitTimeout` | Initial retransmission timeout before RTT estimation converges. | `300ms` transport default |
 | `SBMinRetransmitTimeout` | Floor for the adaptive retransmission timeout. | `150ms` transport default |
 | `SBMaxRecieveBufferSize` | Per-stream receive/reorder ring and flow-control window, allocated per active stream. This is not the kernel UDP socket buffer. | `400MB` |
@@ -339,32 +336,26 @@ spaces:
 Durations accept a bare integer in seconds or strings ending in `ms`, `s`, or
 `m`, such as `300ms`, `10s`, or `5m`.
 
-## Transport connection pool
+## Transport connection and streams
 
-`QuicConfig` is the legacy YAML section name retained for compatibility. It now
-controls the Anadromous connection pool; Salmon Cannon does not use QUIC.
+Each bridge pair uses one Anadromous transport connection at a time. Proxied
+TCP connections are multiplexed as independent streams over that connection;
+Salmon Cannon does not create or configure a multi-connection pool.
 
 ```yaml
-QuicConfig:
-  MaxConnectionsPerBridge: 8
-  MaxStreamsPerConnection: 500
-  IdleCleanupTimeout: 5m
+SalmonBridges:
+  - SBName: "wan-a"
+    SBConnect: true
+    SBFarIp: "203.0.113.20"
+    SBFarPort: 55001
+    SBMaxStreams: 500
 ```
 
-- `MaxConnectionsPerBridge` is the number of transport connections the near
-  pool may create for a bridge.
-- `MaxStreamsPerConnection` limits the number of active proxy streams selected
-  on one pooled connection.
-- `IdleCleanupTimeout` is parsed but is not currently acted on by the pool.
-
-The pool opens a new transport connection for each new proxy stream until it
-reaches `MaxConnectionsPerBridge`, then chooses the least-loaded connection.
-Consequently, a pool can spread concurrent TCP flows, but one TCP flow remains
-one Anadromous stream and is never striped across connections.
-
-If the entire section is omitted, the current loader uses one connection and
-500 streams per connection. A present but partial section currently has
-different fallback values, so set both active numeric fields explicitly.
+`SBMaxStreams` is configured per bridge and defaults to 500. Use the same value
+on the near and far entries for predictable capacity. Each proxied TCP
+connection occupies one stream and is never striped. If the transport
+connection becomes unusable, the near bridge replaces it rather than adding
+another connection to a pool.
 
 ## Logging
 
@@ -473,9 +464,8 @@ near bridges sequentially.
 
 ## Host and path tuning
 
-Anadromous requests 16 MiB Linux UDP send and receive socket buffers and accepts
-kernel clamping without emitting the old quic-go “failed to sufficiently
-increase receive buffer size” error. Check both endpoints:
+Anadromous requests 16 MiB Linux UDP send and receive socket buffers. Linux may
+clamp those requests to the host limits, so check both endpoints:
 
 ```bash
 sysctl net.core.rmem_max net.core.wmem_max
@@ -514,7 +504,6 @@ For high throughput, also verify:
 - No API authentication.
 - `SalmonBounces` configuration and relay code exist, but the main executable
   does not currently start configured bounce instances.
-- `QuicConfig.IdleCleanupTimeout` is not currently used for pool cleanup.
 
 ## License
 

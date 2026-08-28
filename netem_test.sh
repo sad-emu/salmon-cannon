@@ -142,7 +142,7 @@ go build -o "$RATETEST_BIN" ./ratetest || { echo "go build ratetest failed"; exi
 
 echo "==> Writing configuration files"
 
-# Far (accepting QUIC connections)
+# Far (accepting an Anadromous connection)
 cat > "$FAR_DIR/scconfig.yml" <<EOF
 SalmonBridges:
   - SBName: "sc-near"
@@ -151,6 +151,7 @@ SalmonBridges:
     SBSocksListenPort: 0
     SBSocksListenAddress: "127.0.0.1"
     SBIdleTimeout: 10s
+    SBMaxStreams: 500
     SBInitialPacketSize: ${TEST_PACKET_SIZE}
     SBMaxRecieveBufferSize: ${TEST_RECEIVE_BUFFER}
     SBMaxBytesInFlight: ${TEST_IN_FLIGHT}
@@ -176,6 +177,7 @@ SalmonBridges:
     SBFarPort: ${FAR_PORT}
     SBFarIp: "127.0.0.1"
     SBIdleTimeout: 10s
+    SBMaxStreams: 500
     SBInitialPacketSize: ${TEST_PACKET_SIZE}
     SBMaxRecieveBufferSize: ${TEST_RECEIVE_BUFFER}
     SBMaxBytesInFlight: ${TEST_IN_FLIGHT}

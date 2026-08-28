@@ -78,6 +78,9 @@ func TestSetDefaults(t *testing.T) {
 	if b.InitialPacketSize != 1350 {
 		t.Errorf("InitialPacketSize default not set")
 	}
+	if b.MaxStreams != 500 {
+		t.Errorf("MaxStreams default not set, got %d", b.MaxStreams)
+	}
 	if b.TotalBandwidthLimit != -1 {
 		t.Errorf("TotalBandwidthLimit default not set")
 	}
@@ -100,8 +103,7 @@ func TestLoadConfig(t *testing.T) {
     SBInitialRetransmitTimeout: "300ms"
     SBMinRetransmitTimeout: "150ms"
     SBInitialPacketSize: 1500
-    SBRecieveWindow: "20M"
-    SBMaxRecieveWindow: "50M"
+    SBMaxStreams: 321
     SBTotalBandwidthLimit: "200M"
     SBPacingDatagramOverhead: 66
     SBPacingMinimumDatagramSize: 84
@@ -150,6 +152,9 @@ func TestLoadConfig(t *testing.T) {
 	if b.InitialPacketSize != 1500 {
 		t.Errorf("InitialPacketSize not parsed correctly")
 	}
+	if b.MaxStreams != 321 {
+		t.Errorf("MaxStreams not parsed correctly, got %d", b.MaxStreams)
+	}
 	if b.TotalBandwidthLimit != SizeString(25000000) {
 		t.Errorf("TotalBandwidthLimit not parsed correctlygot %d", b.TotalBandwidthLimit)
 	}
@@ -182,6 +187,25 @@ func TestLoadConfig(t *testing.T) {
 	}
 	if len(b.AllowedOutAddresses) != 2 {
 		t.Errorf("AllowedOutAddresses not parsed correctly, got %d", len(b.AllowedOutAddresses))
+	}
+}
+
+func TestBridgeMaxStreamsDefaultAndOverride(t *testing.T) {
+	var cfg SalmonCannonConfig
+	if err := yaml.Unmarshal([]byte(`SalmonBridges:
+  - SBName: default-streams
+  - SBName: custom-streams
+    SBMaxStreams: 42
+`), &cfg); err != nil {
+		t.Fatalf("failed to parse bridge stream config: %v", err)
+	}
+
+	cfg.SetDefaults()
+	if cfg.Bridges[0].MaxStreams != 500 {
+		t.Errorf("default MaxStreams = %d, want 500", cfg.Bridges[0].MaxStreams)
+	}
+	if cfg.Bridges[1].MaxStreams != 42 {
+		t.Errorf("custom MaxStreams = %d, want 42", cfg.Bridges[1].MaxStreams)
 	}
 }
 
@@ -241,8 +265,6 @@ SalmonBridges:
     SBFarIp: "127.0.0.1"
     SBIdleTimeout: "15s"
     SBInitialPacketSize: 1500
-    SBRecieveWindow: "20M"
-    SBMaxRecieveWindow: "50M"
     SBTotalBandwidthLimit: "200M"
 `
 	f, err := os.CreateTemp("", "salmon_config_test.yaml")
@@ -408,178 +430,5 @@ func TestSalmonBounceConfig_ParseYAML(t *testing.T) {
 	}
 	if b2.IdleTimeout != DurationString(60*time.Second) {
 		t.Errorf("bounce 2: expected default IdleTimeout 60s, got %v", b2.IdleTimeout)
-	}
-}
-
-func TestQuicConfig_SetDefaults(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    QuicConfig
-		expected QuicConfig
-	}{
-		{
-			name:  "all zero values",
-			input: QuicConfig{},
-			expected: QuicConfig{
-				MaxConnectionsPerBridge: 1,
-				MaxStreamsPerConnection: 500,
-				IdleCleanupTimeout:      DurationString(5 * time.Minute),
-			},
-		},
-		{
-			name: "partial zero values",
-			input: QuicConfig{
-				MaxConnectionsPerBridge: 100,
-				MaxStreamsPerConnection: 0,
-				IdleCleanupTimeout:      0,
-			},
-			expected: QuicConfig{
-				MaxConnectionsPerBridge: 100,
-				MaxStreamsPerConnection: 500,
-				IdleCleanupTimeout:      DurationString(5 * time.Minute),
-			},
-		},
-		{
-			name: "all values set",
-			input: QuicConfig{
-				MaxConnectionsPerBridge: 200,
-				MaxStreamsPerConnection: 5,
-				IdleCleanupTimeout:      DurationString(10 * time.Minute),
-			},
-			expected: QuicConfig{
-				MaxConnectionsPerBridge: 200,
-				MaxStreamsPerConnection: 5,
-				IdleCleanupTimeout:      DurationString(10 * time.Minute),
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := tt.input
-			cfg.SetDefaults()
-
-			if cfg.MaxConnectionsPerBridge != tt.expected.MaxConnectionsPerBridge {
-				t.Errorf("MaxConnectionsPerBridge: got %d, want %d",
-					cfg.MaxConnectionsPerBridge, tt.expected.MaxConnectionsPerBridge)
-			}
-			if cfg.MaxStreamsPerConnection != tt.expected.MaxStreamsPerConnection {
-				t.Errorf("MaxStreamsPerConnection: got %d, want %d",
-					cfg.MaxStreamsPerConnection, tt.expected.MaxStreamsPerConnection)
-			}
-			if cfg.IdleCleanupTimeout != tt.expected.IdleCleanupTimeout {
-				t.Errorf("IdleCleanupTimeout: got %v, want %v",
-					cfg.IdleCleanupTimeout, tt.expected.IdleCleanupTimeout)
-			}
-		})
-	}
-}
-
-func TestQuicConfig_UnmarshalYAML(t *testing.T) {
-	tests := []struct {
-		name      string
-		yaml      string
-		expectErr bool
-		validate  func(*testing.T, *QuicConfig)
-	}{
-		{
-			name: "valid config with all fields",
-			yaml: `
-MaxConnectionsPerBridge: 5
-MaxStreamsPerConnection: 10
-IdleCleanupTimeout: 10m
-`,
-			expectErr: false,
-			validate: func(t *testing.T, cfg *QuicConfig) {
-				if cfg.MaxConnectionsPerBridge != 5 {
-					t.Errorf("MaxConnectionsPerBridge: got %d, want 5", cfg.MaxConnectionsPerBridge)
-				}
-				if cfg.MaxStreamsPerConnection != 10 {
-					t.Errorf("MaxStreamsPerConnection: got %d, want 10", cfg.MaxStreamsPerConnection)
-				}
-				if cfg.IdleCleanupTimeout != DurationString(10*time.Minute) {
-					t.Errorf("IdleCleanupTimeout: got %v, want 10m", cfg.IdleCleanupTimeout)
-				}
-			},
-		},
-		{
-			name: "partial config uses defaults",
-			yaml: `
-MaxConnectionsPerBridge: 20
-`,
-			expectErr: false,
-			validate: func(t *testing.T, cfg *QuicConfig) {
-				if cfg.MaxConnectionsPerBridge != 20 {
-					t.Errorf("MaxConnectionsPerBridge: got %d, want 20", cfg.MaxConnectionsPerBridge)
-				}
-				if cfg.MaxStreamsPerConnection != 500 {
-					t.Errorf("MaxStreamsPerConnection: got %d, want 500 (default)", cfg.MaxStreamsPerConnection)
-				}
-				if cfg.IdleCleanupTimeout != DurationString(5*time.Minute) {
-					t.Errorf("IdleCleanupTimeout: got %v, want 5m (default)", cfg.IdleCleanupTimeout)
-				}
-			},
-		},
-		{
-			name:      "empty config uses all defaults",
-			yaml:      `{}`,
-			expectErr: false,
-			validate: func(t *testing.T, cfg *QuicConfig) {
-				if cfg.MaxConnectionsPerBridge != 1 {
-					t.Errorf("MaxConnectionsPerBridge: got %d, want 1 (default)", cfg.MaxConnectionsPerBridge)
-				}
-				if cfg.MaxStreamsPerConnection != 500 {
-					t.Errorf("MaxStreamsPerConnection: got %d, want 500 (default)", cfg.MaxStreamsPerConnection)
-				}
-				if cfg.IdleCleanupTimeout != DurationString(5*time.Minute) {
-					t.Errorf("IdleCleanupTimeout: got %v, want 5m (default)", cfg.IdleCleanupTimeout)
-				}
-			},
-		},
-		{
-			name: "duration strings parsed correctly",
-			yaml: `
-IdleCleanupTimeout: 2h30m
-`,
-			expectErr: false,
-			validate: func(t *testing.T, cfg *QuicConfig) {
-				expected := DurationString(2*time.Hour + 30*time.Minute)
-				if cfg.IdleCleanupTimeout != expected {
-					t.Errorf("IdleCleanupTimeout: got %v, want %v", cfg.IdleCleanupTimeout, expected)
-				}
-			},
-		},
-		{
-			name: "invalid duration string",
-			yaml: `
-IdleCleanupTimeout: not-a-duration
-`,
-			expectErr: true,
-			validate:  nil,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var cfg QuicConfig
-			err := yaml.Unmarshal([]byte(tt.yaml), &cfg)
-
-			if tt.expectErr {
-				if err == nil {
-					t.Errorf("expected error but got none")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			cfg.SetDefaults()
-
-			if tt.validate != nil {
-				tt.validate(t, &cfg)
-			}
-		})
 	}
 }

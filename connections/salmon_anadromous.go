@@ -2,30 +2,30 @@ package connections
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"salmoncannon/status"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/sad-emu/anadromous"
 )
 
-// BridgeNetConfig carries the transport tuning previously expressed through
-// quic.Config / tls.Config. Anadromous has no TLS; when payload encryption
-// is required, run the bridge with a SharedSecret so the AES layer covers it.
+// BridgeNetConfig carries the Anadromous transport tuning for a bridge.
+// Anadromous has no TLS; when payload encryption is required, run the bridge
+// with a SharedSecret so the AES layer covers it.
 type BridgeNetConfig struct {
-	IdleTimeout time.Duration // dead-peer detection window (was MaxIdleTimeout)
+	IdleTimeout time.Duration // dead-peer detection window
 	// InitialRetransmitTimeout is used before the RTT estimator has enough
 	// samples; MinRetransmitTimeout is the estimator's lower bound. Zero
 	// preserves Anadromous's defaults for either setting.
 	InitialRetransmitTimeout time.Duration
 	MinRetransmitTimeout     time.Duration
-	StreamRecvBuffer         int // per-stream receive buffer ceiling (was MaxStreamReceiveWindow)
-	PacketSize               int // max UDP datagram size, must match both ends (was InitialPacketSize)
-	MaxStreams               int // concurrent streams per connection (was MaxIncomingStreams)
+	StreamRecvBuffer         int // per-stream receive buffer ceiling
+	PacketSize               int // max UDP datagram size, must match both ends
+	MaxStreams               int // concurrent streams on the bridge connection
 	// MaxBytesInFlight caps sent-but-unacknowledged bytes per stream. Zero
 	// leaves Anadromous to derive a safe value from the UDP receive buffer.
 	MaxBytesInFlight int
@@ -37,10 +37,9 @@ type BridgeNetConfig struct {
 	// should be configured identically at both ends.
 	FEC2D bool
 
-	// BandwidthLimit (bytes/sec) is the bridge's SBTotalBandwidthLimit
-	// passed down as one bridge-wide transport pacing rate. Every connection
-	// created by this bridge shares the same wire pacer, so FEC/retransmission
-	// traffic cannot multiply the provisioned rate with the pool size.
+	// BandwidthLimit (bytes/sec) is the bridge's SBTotalBandwidthLimit passed
+	// down as the transport pacing rate. FEC and retransmission traffic also
+	// spend from this wire budget.
 	BandwidthLimit            int
 	PacingDatagramOverhead    int // carrier-counted bytes outside each UDP payload
 	PacingMinimumDatagramSize int // carrier minimum including overhead/padding
@@ -63,8 +62,7 @@ func (c BridgeNetConfig) newWirePacer() *anadromous.WirePacer {
 }
 
 // optionsWithPacer translates the config (plus optional interface binding)
-// into Anadromous options. pacer is caller-owned so one pointer can be reused
-// by every Dial/accepted Connection belonging to a bridge.
+// into Anadromous options.
 func (c BridgeNetConfig) optionsWithPacer(interfaceName string, pacer *anadromous.WirePacer) []anadromous.Option {
 	var opts []anadromous.Option
 	if c.IdleTimeout > 0 {
@@ -106,17 +104,9 @@ func (c BridgeNetConfig) optionsWithPacer(interfaceName string, pacer *anadromou
 	return opts
 }
 
-// options creates a fresh endpoint-wide pacer. NewSalmonAnadromous uses the
-// split form above so it can retain and share the pointer across later Dials.
+// options creates a fresh endpoint-wide pacer.
 func (c BridgeNetConfig) options(interfaceName string) []anadromous.Option {
 	return c.optionsWithPacer(interfaceName, c.newWirePacer())
-}
-
-type anadromousConnection struct {
-	conn          *anadromous.Connection
-	activeStreams int32 // atomic counter
-	createdAt     time.Time
-	mu            sync.Mutex
 }
 
 type SalmonAnadromous struct {
@@ -124,8 +114,8 @@ type SalmonAnadromous struct {
 	BridgeAddress string
 	BridgeName    string
 
-	connections   []*anadromousConnection
-	connectionsMu sync.RWMutex
+	connection    *anadromous.Connection
+	connectionMu  sync.Mutex
 	opts          []anadromous.Option
 	wirePacer     *anadromous.WirePacer
 	interfaceName string
@@ -141,15 +131,14 @@ func NewSalmonAnadromous(port int, address string, name string,
 		opts:          netcfg.optionsWithPacer(interfaceName, pacer),
 		wirePacer:     pacer,
 		interfaceName: interfaceName,
-		connections:   make([]*anadromousConnection, 0, MaxConnectionsPerBridge),
 	}
 	// Reset the stream map for this bridge
 	status.GlobalConnMonitorRef.ResetStreamCount(name)
 	return sq
 }
 
-// createNewConnection dials a new anadromous connection to the far side.
-func (s *SalmonAnadromous) createNewConnection(ctx context.Context) (*anadromousConnection, error) {
+// createNewConnection dials the Anadromous connection to the far side.
+func (s *SalmonAnadromous) createNewConnection(ctx context.Context) (*anadromous.Connection, error) {
 	addr := fmt.Sprintf("%s:%d", s.BridgeAddress, s.BridgePort)
 
 	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -171,107 +160,79 @@ func (s *SalmonAnadromous) createNewConnection(ctx context.Context) (*anadromous
 			s.BridgeName, s.BridgeAddress, s.BridgePort)
 	}
 
-	return &anadromousConnection{
-		conn:          conn,
-		activeStreams: 0,
-		createdAt:     time.Now(),
-	}, nil
+	return conn, nil
 }
 
-// selectConnection finds a suitable connection or creates a new one
-func (s *SalmonAnadromous) selectConnection() (*anadromousConnection, error) {
-	s.connectionsMu.Lock()
-	defer s.connectionsMu.Unlock()
+// getConnection returns the bridge's one transport connection, dialing it
+// lazily when necessary. Holding the mutex across Dial prevents concurrent
+// stream opens from creating duplicate connections.
+func (s *SalmonAnadromous) getConnection() (*anadromous.Connection, error) {
+	s.connectionMu.Lock()
+	defer s.connectionMu.Unlock()
 
-	// Can we to create a new connection
-	if len(s.connections) < MaxConnectionsPerBridge {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-
-		newConnection, err := s.createNewConnection(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create new connection: %w", err)
-		}
-
-		s.connections = append(s.connections, newConnection)
-		status.GlobalConnMonitorRef.AddStream(s.BridgeName)
-		log.Printf("NEAR: Created new connection (total: %d/%d) for %s", len(s.connections), MaxConnectionsPerBridge, s.BridgeName)
-		return newConnection, nil
-	} else {
-		// Find the connection with the least number of active streams
-		var selected *anadromousConnection
-		var minStreams int32 = MaxStreamsPerConnection
-		for _, conn := range s.connections {
-			activeStreams := atomic.LoadInt32(&conn.activeStreams)
-			if activeStreams < MaxStreamsPerConnection && activeStreams < minStreams {
-				selected = conn
-				minStreams = activeStreams
-			}
-		}
-
-		// If found a suitable connection, use it
-		if selected != nil {
-			status.GlobalConnMonitorRef.AddStream(s.BridgeName)
-			return selected, nil
-		}
-		return nil, fmt.Errorf("all connections are at maximum stream capacity")
-	}
-}
-
-// CloseConnection safely closes a connection
-func (s *SalmonAnadromous) CloseConnection(aconn *anadromousConnection) {
-	aconn.mu.Lock()
-	defer aconn.mu.Unlock()
-
-	if aconn.conn != nil {
-		_ = aconn.conn.CloseWithError(0, "idle timeout")
-		aconn.conn = nil
+	if s.connection != nil {
+		return s.connection, nil
 	}
 
-	// This need to remove it from the pool as well
-	s.connectionsMu.Lock()
-	defer s.connectionsMu.Unlock()
-
-	// Remove from connections slice
-	for i, conn := range s.connections {
-		if conn == aconn {
-			s.connections = append(s.connections[:i], s.connections[i+1:]...)
-			break
-		}
-	}
-}
-
-// OpenStream opens an anadromous stream using the bridge pool
-// Returns the stream and a cleanup function that MUST be called when done
-func (s *SalmonAnadromous) OpenStream() (*anadromous.Stream, func(), error, *anadromousConnection) {
-	// Select or create a connection
-	aconn, err := s.selectConnection()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to select connection: %w", err), nil
-	}
-
-	// Increment active stream counter
-	atomic.AddInt32(&aconn.activeStreams, 1)
-
-	// Open stream with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	stream, err := aconn.conn.OpenStreamSync(ctx)
+	conn, err := s.createNewConnection(ctx)
 	if err != nil {
-		atomic.AddInt32(&aconn.activeStreams, -1)
-		// This connection is no good, close it
-		s.CloseConnection(aconn)
+		return nil, fmt.Errorf("failed to create connection: %w", err)
+	}
+
+	s.connection = conn
+	log.Printf("NEAR: Created connection for %s", s.BridgeName)
+	return conn, nil
+}
+
+// CloseConnection closes conn only if it is still this bridge's current
+// connection. The identity check prevents a late failure on a stale stream
+// from closing a replacement connection.
+func (s *SalmonAnadromous) CloseConnection(conn *anadromous.Connection) {
+	if conn == nil {
+		return
+	}
+
+	s.connectionMu.Lock()
+	defer s.connectionMu.Unlock()
+	if s.connection != conn {
+		return
+	}
+
+	_ = conn.CloseWithError(0, "connection discarded")
+	s.connection = nil
+}
+
+// OpenStream opens an Anadromous stream on the bridge's one connection.
+// Returns the stream and a cleanup function that MUST be called when done
+func (s *SalmonAnadromous) OpenStream() (*anadromous.Stream, func(), error, *anadromous.Connection) {
+	conn, err := s.getConnection()
+	if err != nil {
+		return nil, nil, err, nil
+	}
+
+	stream, err := conn.OpenStream(context.Background())
+	if err != nil {
+		// Reaching the configured stream limit does not make the connection
+		// unhealthy. Other open failures invalidate it so the next request can
+		// establish a replacement.
+		if !errors.Is(err, anadromous.ErrMaxStreams) {
+			s.CloseConnection(conn)
+		}
 		return nil, nil, fmt.Errorf("failed to open stream: %w", err), nil
 	}
 
-	// Cleanup function to decrement counter
+	status.GlobalConnMonitorRef.AddStream(s.BridgeName)
+	var cleanupOnce sync.Once
 	cleanup := func() {
-		status.GlobalConnMonitorRef.RemoveStream(s.BridgeName)
-		atomic.AddInt32(&aconn.activeStreams, -1)
+		cleanupOnce.Do(func() {
+			status.GlobalConnMonitorRef.RemoveStream(s.BridgeName)
+		})
 	}
 
-	return stream, cleanup, nil, aconn
+	return stream, cleanup, nil, conn
 }
 
 func shouldBlockHost(expectedRemote string, newRemote string) bool {

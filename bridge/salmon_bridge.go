@@ -16,24 +16,22 @@ import (
 
 type SalmonBridge struct {
 	BridgeName string
-	sq         *connections.SalmonAnadromous // Handler for anadromous connections
+	transport  *connections.SalmonAnadromous
 
 	sl                  *limiter.SharedLimiter
-	connector           bool
 	allowedOutAddresses []string
 
 	sharedSecret string
 }
 
 func NewSalmonBridge(name string, address string, port int, netcfg connections.BridgeNetConfig,
-	sl *limiter.SharedLimiter, connector bool, interfaceName string,
+	sl *limiter.SharedLimiter, interfaceName string,
 	allowedOutAddresses []string, sharedSecret string) *SalmonBridge {
-	sq := connections.NewSalmonAnadromous(port, address, name, netcfg, interfaceName)
+	transport := connections.NewSalmonAnadromous(port, address, name, netcfg, interfaceName)
 	return &SalmonBridge{
 		BridgeName:          name,
 		sl:                  sl,
-		sq:                  sq,
-		connector:           connector,
+		transport:           transport,
 		allowedOutAddresses: allowedOutAddresses,
 		sharedSecret:        sharedSecret,
 	}
@@ -44,7 +42,7 @@ func NewSalmonBridge(name string, address string, port int, netcfg connections.B
 // =========================================================
 
 func (s *SalmonBridge) StatusCheck() {
-	stream, cleanup, err, qconn := s.sq.OpenStream()
+	stream, cleanup, err, conn := s.transport.OpenStream()
 	if err != nil {
 		log.Printf("NEAR: Bridge %s status check connect error: %v", s.BridgeName, err)
 		return
@@ -56,7 +54,7 @@ func (s *SalmonBridge) StatusCheck() {
 	written, err := stream.Write([]byte{STATUS_HEADER})
 	if err != nil || written != 1 {
 		log.Printf("NEAR: Bridge %s status check write error: %v", s.BridgeName, err)
-		s.sq.CloseConnection(qconn)
+		s.transport.CloseConnection(conn)
 		return
 	}
 
@@ -66,7 +64,7 @@ func (s *SalmonBridge) StatusCheck() {
 	n, err := stream.Read(buf)
 	if err != nil || n != 1 || buf[0] != STATUS_ACK {
 		log.Printf("NEAR: Bridge %s status check read error: %v", s.BridgeName, err)
-		s.sq.CloseConnection(qconn)
+		s.transport.CloseConnection(conn)
 		return
 	}
 
@@ -77,7 +75,7 @@ func (s *SalmonBridge) StatusCheck() {
 	written, err = stream.Write([]byte{STATUS_ACK})
 	if err != nil || written != 1 {
 		log.Printf("NEAR: Bridge %s status check final write error: %v", s.BridgeName, err)
-		s.sq.CloseConnection(qconn)
+		s.transport.CloseConnection(conn)
 		return
 	}
 
@@ -89,7 +87,7 @@ func (s *SalmonBridge) StatusCheck() {
 
 func (s *SalmonBridge) tryConnect() (net.Conn, net.Conn, *anadromous.Stream, func(), error) {
 	// Open the stream first
-	stream, cleanup, err, _ := s.sq.OpenStream()
+	stream, cleanup, err, _ := s.transport.OpenStream()
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -265,5 +263,5 @@ func (s *SalmonBridge) handleIncomingStream(stream *anadromous.Stream) {
 
 func (s *SalmonBridge) NewFarListen() error {
 	// Pass it down the the anadromous stream with the handler
-	return s.sq.NewFarListen(s.handleIncomingStream)
+	return s.transport.NewFarListen(s.handleIncomingStream)
 }

@@ -37,7 +37,7 @@ func TestSalmonBridge_HTTPProxyEndToEnd(t *testing.T) {
 	// Far bridge (listener)
 	farPort := 42000
 	farBridge := NewSalmonBridge("test1", "", farPort, netCfg,
-		nil, false, "", make([]string, 0), "")
+		nil, "", make([]string, 0), "")
 	go func() {
 		farBridge.NewFarListen()
 	}()
@@ -46,7 +46,7 @@ func TestSalmonBridge_HTTPProxyEndToEnd(t *testing.T) {
 
 	// Near bridge (connector)
 	nearBridge := NewSalmonBridge("test1", "127.0.0.1", farPort, netCfg,
-		nil, true, "", make([]string, 0), "")
+		nil, "", make([]string, 0), "")
 
 	// Open a connection from near to the HTTP server
 	conn, err := nearBridge.NewNearConn("127.0.0.1", 1099)
@@ -112,7 +112,7 @@ func TestSalmonBridge_HTTPSProxyEndToEnd(t *testing.T) {
 	farPort := 42001
 
 	farBridge := NewSalmonBridge("test2", "", farPort, netCfg,
-		nil, false, "", make([]string, 0), "")
+		nil, "", make([]string, 0), "")
 	go func() {
 		farBridge.NewFarListen()
 	}()
@@ -120,7 +120,7 @@ func TestSalmonBridge_HTTPSProxyEndToEnd(t *testing.T) {
 
 	// Near bridge (connector)
 	nearBridge := NewSalmonBridge("test2", "127.0.0.1", farPort, netCfg,
-		nil, true, "", make([]string, 0), "")
+		nil, "", make([]string, 0), "")
 
 	// Open a connection from near to the HTTPS server
 	conn, err := nearBridge.NewNearConn("127.0.0.1", 1098)
@@ -186,7 +186,7 @@ func TestSalmonBridge_PassFarIpCheck(t *testing.T) {
 	addressesOut := []string{"127.0.0.1"}
 
 	farBridge := NewSalmonBridge("test9", "127.0.0.1", farPort, netCfg,
-		nil, false, "", addressesOut, "nil")
+		nil, "", addressesOut, "nil")
 	go func() {
 		farBridge.NewFarListen()
 	}()
@@ -195,7 +195,7 @@ func TestSalmonBridge_PassFarIpCheck(t *testing.T) {
 
 	// Near bridge (connector)
 	nearBridge := NewSalmonBridge("test9", "127.0.0.1", farPort, netCfg,
-		nil, true, "", make([]string, 0), "nil")
+		nil, "", make([]string, 0), "nil")
 
 	// Open a connection from near to the HTTP server
 	conn, err := nearBridge.NewNearConn("127.0.0.1", 9993)
@@ -255,7 +255,7 @@ func TestSalmonBridge_PassFarIpCheckNoEnc(t *testing.T) {
 	addressesOut := []string{"127.0.0.1"}
 
 	farBridge := NewSalmonBridge("test10", "127.0.0.1", farPort, netCfg,
-		nil, false, "", addressesOut, "")
+		nil, "", addressesOut, "")
 	go func() {
 		farBridge.NewFarListen()
 	}()
@@ -264,7 +264,7 @@ func TestSalmonBridge_PassFarIpCheckNoEnc(t *testing.T) {
 
 	// Near bridge (connector)
 	nearBridge := NewSalmonBridge("test10", "127.0.0.1", farPort, netCfg,
-		nil, true, "", make([]string, 0), "")
+		nil, "", make([]string, 0), "")
 
 	// Open a connection from near to the HTTP server
 	conn, err := nearBridge.NewNearConn("127.0.0.1", 9994)
@@ -301,7 +301,7 @@ func TestSalmonBridge_FailFarBridgeIpCheck(t *testing.T) {
 	// Far bridge (listener)
 	farPort := 42000 ///////////////////// Wrong ip so it should fail
 	farBridge := NewSalmonBridge("test1", "127.0.0.2", farPort, netCfg, nil,
-		false, "", make([]string, 0), "nil")
+		"", make([]string, 0), "nil")
 	go func() {
 		farBridge.NewFarListen()
 	}()
@@ -310,7 +310,7 @@ func TestSalmonBridge_FailFarBridgeIpCheck(t *testing.T) {
 
 	// Near bridge (connector)
 	nearBridge := NewSalmonBridge("test1", "127.0.0.1", farPort, netCfg, nil,
-		true, "", make([]string, 0), "nil")
+		"", make([]string, 0), "nil")
 
 	// Open a connection from near to the HTTP server
 	conn, _ := nearBridge.NewNearConn("127.0.0.1", 1124)
@@ -356,7 +356,7 @@ func TestSalmonBridge_FailFarIpFilterCheck(t *testing.T) {
 	addressesOut := []string{"127.0.0.2"}
 
 	farBridge := NewSalmonBridge("test9", "127.0.0.1", farPort, netCfg,
-		nil, false, "", addressesOut, "")
+		nil, "", addressesOut, "")
 	go func() {
 		farBridge.NewFarListen()
 	}()
@@ -365,7 +365,7 @@ func TestSalmonBridge_FailFarIpFilterCheck(t *testing.T) {
 
 	// Near bridge (connector)
 	nearBridge := NewSalmonBridge("test9", "127.0.0.1", farPort, netCfg,
-		nil, true, "", make([]string, 0), "")
+		nil, "", make([]string, 0), "")
 
 	// Open a connection from near to the HTTP server
 	conn, err := nearBridge.NewNearConn("127.0.0.1", 9992)
