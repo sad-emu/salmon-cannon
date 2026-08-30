@@ -54,7 +54,11 @@ func main() {
 		if err != nil {
 			log.Fatalf("API Server: failed to start API server: %v", err)
 		}
-		log.Printf("API Server: HTTP API server started on %s", apiListenAddr)
+		protocol := "HTTP"
+		if cannonConfig.ApiConfig.TLSCert != "" {
+			protocol = "HTTPS"
+		}
+		log.Printf("API Server: %s API server started on %s", protocol, apiListenAddr)
 	}
 
 	var wg sync.WaitGroup

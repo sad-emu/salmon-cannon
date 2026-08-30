@@ -306,6 +306,9 @@ func TestApiConfig_ParseYAML(t *testing.T) {
 	yamlData := `ApiConfig:
   Hostname: "localhost"
   Port: 8080
+  TLSCert: "/etc/salmon/server.crt"
+  TLSKey: "/etc/salmon/server.key"
+  BasicAuthFile: "/etc/salmon/users.json"
 `
 	f, err := os.CreateTemp("", "salmon_config_test.yaml")
 	if err != nil {
@@ -327,6 +330,12 @@ func TestApiConfig_ParseYAML(t *testing.T) {
 	}
 	if cfg.ApiConfig.Port != 8080 {
 		t.Errorf("Port not parsed correctly, got %d", cfg.ApiConfig.Port)
+	}
+	if cfg.ApiConfig.TLSCert != "/etc/salmon/server.crt" || cfg.ApiConfig.TLSKey != "/etc/salmon/server.key" {
+		t.Errorf("TLS paths not parsed correctly: %+v", cfg.ApiConfig)
+	}
+	if cfg.ApiConfig.BasicAuthFile != "/etc/salmon/users.json" {
+		t.Errorf("BasicAuthFile not parsed correctly, got %q", cfg.ApiConfig.BasicAuthFile)
 	}
 }
 

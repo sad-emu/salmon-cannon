@@ -4,6 +4,11 @@ ApiConfig:
   # Optional for TLS
   # TLSCert: "/path/to/server.crt"
   # TLSKey: "/path/to/server.key"
+  # Optional HTTP Basic authentication (prefer with TLS)
+  # BasicAuthFile: "/path/to/api-users.json"
+  # Or mTLS authentication; mutually exclusive with BasicAuthFile
+  # TLSClientCA: "/path/to/client-ca.pem"
+  # MTLSAuthFile: "/path/to/api-mtls-users.json"
 SocksRedirect:
   Hostname: "localhost"
   Port: 8082

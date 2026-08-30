@@ -20,10 +20,13 @@ type GlobalLogConfig struct {
 }
 
 type ApiConfig struct {
-	Hostname string `yaml:"Hostname,omitempty"`
-	Port     int    `yaml:"Port,omitempty"`
-	TLSCert  string `yaml:"TLSCert,omitempty"` // Path to TLS certificate file
-	TLSKey   string `yaml:"TLSKey,omitempty"`  // Path to TLS key file
+	Hostname      string `yaml:"Hostname,omitempty"`
+	Port          int    `yaml:"Port,omitempty"`
+	TLSCert       string `yaml:"TLSCert,omitempty"`       // Path to TLS certificate file
+	TLSKey        string `yaml:"TLSKey,omitempty"`        // Path to TLS key file
+	BasicAuthFile string `yaml:"BasicAuthFile,omitempty"` // Path to JSON username/password file
+	MTLSAuthFile  string `yaml:"MTLSAuthFile,omitempty"`  // Path to JSON certificate DN mappings
+	TLSClientCA   string `yaml:"TLSClientCA,omitempty"`   // CA bundle used to verify mTLS clients
 }
 
 type SocksRedirectConfig struct {

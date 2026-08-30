@@ -32,12 +32,12 @@ the path.
 - Linux batching and offload paths: `sendmmsg`/`recvmmsg`, UDP GSO/GRO, and a
   best-effort io_uring send path with automatic fallbacks.
 - Optional source, destination, and far-peer IP allowlists.
-- An unauthenticated status API with optional server-side HTTPS.
+- A status API with optional server-side HTTPS, HTTP Basic auth, or mTLS auth.
 - Local clean-link and hostile-netem throughput regression scripts.
 
 > **Security warning:** Anadromous is not QUIC and provides no TLS, peer
-> authentication, or cryptographic integrity. SOCKS, the HTTP proxy, and the API
-> also have no usable authentication. `SBSharedSecret` adds unauthenticated
+> authentication, or cryptographic integrity. SOCKS and the HTTP proxy also
+> have no usable authentication. `SBSharedSecret` adds unauthenticated
 > AES-256-CTR confidentiality to target metadata and proxied TCP bytes, but it
 > is not TLS or AEAD and does not authenticate either endpoint. Run Salmon
 > Cannon only on trusted/private paths, restrict listeners with host firewalls,
@@ -433,15 +433,81 @@ ApiConfig:
 ```
 
 Both `TLSCert` and `TLSKey` are required to enable HTTPS; otherwise the server
-uses HTTP. The only supported requests are:
+uses HTTP. Configuring only one is an error. The only supported requests are:
 
 - `GET /api/v1/bridges` — configured bridge names and IDs.
 - `GET /api/v1/status` — bridge limiter, transfer, stream, liveness, and ping
   counters. Liveness and ping require `SBStatusCheckFrequency` on the near node.
 
-The API has no authentication. Bind it to a trusted address and firewall it;
-HTTPS encrypts the API connection but does not add client authentication or
-secure the UDP bridge.
+Authentication is optional. Configure at most one of `BasicAuthFile` and
+`MTLSAuthFile`; leaving both unset preserves the unauthenticated behavior.
+
+For HTTP Basic auth, add `BasicAuthFile` to `ApiConfig`:
+
+```yaml
+ApiConfig:
+  Hostname: "127.0.0.1"
+  Port: 8081
+  TLSCert: "/path/to/server.crt"
+  TLSKey: "/path/to/server.key"
+  BasicAuthFile: "/path/to/api-users.json"
+```
+
+Create the JSON file with plaintext passwords:
+
+```json
+{
+  "users": [
+    {"username": "admin", "password": "replace-me"},
+    {"username": "monitor", "password": "replace-me-too"}
+  ]
+}
+```
+
+At each successful server startup, entries containing `password` are replaced
+atomically with `password_sha512` and a random 32-byte `salt`, both hex encoded;
+the rewritten file has mode `0600`. The hash is SHA-512 over the salt followed
+by the UTF-8 password. To add or reset an account, add a `password` value and
+restart. HTTP Basic credentials are only encoded, not encrypted, so configure
+TLS whenever Basic auth is used.
+
+```bash
+curl --user admin:replace-me https://127.0.0.1:8081/api/v1/status
+```
+
+For mTLS, configure the server certificate, client CA bundle, and DN mapping
+file:
+
+```yaml
+ApiConfig:
+  Hostname: "127.0.0.1"
+  Port: 8081
+  TLSCert: "/path/to/server.crt"
+  TLSKey: "/path/to/server.key"
+  TLSClientCA: "/path/to/client-ca.pem"
+  MTLSAuthFile: "/path/to/api-mtls-users.json"
+```
+
+```json
+{
+  "users": [
+    {"dn": "OU=Operations,O=Example Corp", "username": "deploy-bot"},
+    {"dn": "CN=monitoring-client", "username": "monitor"}
+  ]
+}
+```
+
+The client certificate must chain to `TLSClientCA`. The first case-sensitive
+`dn` substring found in Go's canonical certificate subject string selects the
+associated username. Keep DN fragments as specific as possible. You can inspect
+the subject format with `openssl x509 -in client.crt -noout -subject -nameopt RFC2253`.
+
+```bash
+curl --cert client.crt --key client.key --cacert server-ca.pem \
+  https://127.0.0.1:8081/api/v1/status
+```
+
+API TLS and authentication do not secure the UDP bridge itself.
 
 ## Rate-test tool
 
@@ -501,7 +567,6 @@ For high throughput, also verify:
   credentials.
 - No bridge TLS, authenticated encryption, peer authentication, congestion
   control, or path-MTU discovery.
-- No API authentication.
 - `SalmonBounces` configuration and relay code exist, but the main executable
   does not currently start configured bounce instances.
 

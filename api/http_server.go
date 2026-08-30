@@ -2,10 +2,15 @@ package api
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"salmoncannon/config"
@@ -20,6 +25,7 @@ type Server struct {
 	listenAddr string
 	httpSrv    *http.Server
 	ln         net.Listener
+	auth       authenticator
 }
 
 // NewServer creates a new API server instance.
@@ -29,13 +35,26 @@ func NewServer(cfg *config.SalmonCannonConfig, listenAddr string) *Server {
 
 // Start begins listening and serving. It returns after the server has started or an error.
 func (s *Server) Start() error {
+	tlsConfig, err := s.serverTLSConfig()
+	if err != nil {
+		return err
+	}
+	if err := s.loadAuthenticator(); err != nil {
+		return err
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/bridges", s.handleBridges)
 	mux.HandleFunc("/api/v1/status", s.handleStatus)
+	var handler http.Handler = mux
+	if s.auth != nil {
+		handler = s.requireAuthentication(handler)
+	}
 
 	h := &http.Server{
-		Addr:    s.listenAddr,
-		Handler: mux,
+		Addr:      s.listenAddr,
+		Handler:   handler,
+		TLSConfig: tlsConfig,
 	}
 	s.httpSrv = h
 
@@ -45,16 +64,11 @@ func (s *Server) Start() error {
 	}
 	s.ln = ln
 
-	// Check if TLS is configured
-	useTLS := s.cfg.ApiConfig != nil &&
-		s.cfg.ApiConfig.TLSCert != "" &&
-		s.cfg.ApiConfig.TLSKey != ""
-
 	go func() {
 		var err error
-		if useTLS {
+		if tlsConfig != nil {
 			log.Printf("api: starting HTTPS server on %s", s.listenAddr)
-			err = h.ServeTLS(ln, s.cfg.ApiConfig.TLSCert, s.cfg.ApiConfig.TLSKey)
+			err = h.ServeTLS(ln, "", "")
 		} else {
 			log.Printf("api: starting HTTP server on %s", s.listenAddr)
 			err = h.Serve(ln)
@@ -65,6 +79,86 @@ func (s *Server) Start() error {
 	}()
 
 	return nil
+}
+
+func (s *Server) loadAuthenticator() error {
+	if s.cfg.ApiConfig == nil {
+		return nil
+	}
+	cfg := s.cfg.ApiConfig
+	if cfg.BasicAuthFile != "" && cfg.MTLSAuthFile != "" {
+		return errors.New("api: BasicAuthFile and MTLSAuthFile are mutually exclusive")
+	}
+	if cfg.BasicAuthFile != "" {
+		auth, err := loadBasicAuthenticator(cfg.BasicAuthFile)
+		if err != nil {
+			return fmt.Errorf("api: %w", err)
+		}
+		s.auth = auth
+	}
+	if cfg.MTLSAuthFile != "" {
+		auth, err := loadMTLSAuthenticator(cfg.MTLSAuthFile)
+		if err != nil {
+			return fmt.Errorf("api: %w", err)
+		}
+		s.auth = auth
+	}
+	return nil
+}
+
+func (s *Server) serverTLSConfig() (*tls.Config, error) {
+	if s.cfg.ApiConfig == nil {
+		return nil, nil
+	}
+	cfg := s.cfg.ApiConfig
+	if (cfg.TLSCert == "") != (cfg.TLSKey == "") {
+		return nil, errors.New("api: TLSCert and TLSKey must be configured together")
+	}
+	if cfg.MTLSAuthFile != "" && (cfg.TLSCert == "" || cfg.TLSClientCA == "") {
+		return nil, errors.New("api: MTLSAuthFile requires TLSCert, TLSKey, and TLSClientCA")
+	}
+	if cfg.TLSClientCA != "" && cfg.MTLSAuthFile == "" {
+		return nil, errors.New("api: TLSClientCA requires MTLSAuthFile")
+	}
+	if cfg.TLSCert == "" {
+		return nil, nil
+	}
+
+	certificate, err := tls.LoadX509KeyPair(cfg.TLSCert, cfg.TLSKey)
+	if err != nil {
+		return nil, fmt.Errorf("api: load TLS certificate: %w", err)
+	}
+	tlsConfig := &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: []tls.Certificate{certificate},
+	}
+	if cfg.MTLSAuthFile != "" {
+		pemData, err := os.ReadFile(cfg.TLSClientCA)
+		if err != nil {
+			return nil, fmt.Errorf("api: read TLS client CA: %w", err)
+		}
+		clientCAs := x509.NewCertPool()
+		if !clientCAs.AppendCertsFromPEM(pemData) {
+			return nil, errors.New("api: TLSClientCA contains no valid certificates")
+		}
+		tlsConfig.ClientCAs = clientCAs
+		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+	}
+	return tlsConfig, nil
+}
+
+func (s *Server) requireAuthentication(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		result := s.auth.authenticate(r)
+		if !result.ok {
+			if _, basic := s.auth.(*basicAuthenticator); basic {
+				w.Header().Set("WWW-Authenticate", `Basic realm="salmon-cannon-api", charset="UTF-8"`)
+			}
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, withAuthenticatedUser(r, result.username))
+	})
 }
 
 // Stop attempts a graceful shutdown with a 5s timeout.
