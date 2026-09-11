@@ -46,10 +46,11 @@ the path.
 ## Requirements and build
 
 - Linux. The Anadromous transport uses Linux-specific UDP and socket APIs.
-- Go 1.25 or newer, matching `go.mod`.
+- Go 1.26 or newer, matching `go.mod`.
 
-The current module depends on the published Anadromous module, so a separate
-sibling checkout is not required.
+Dependencies use published GitHub versions: Anadromous `v1.0.2` and `u`
+`v0.1.1`. The `go.mod` replacement directs `github.com/tredeske/u` imports to
+the `github.com/sad-emu/u` fork; sibling checkouts are not required.
 
 Build the proxy and optional rate-test tool from the Salmon Cannon repository:
 
@@ -66,11 +67,12 @@ To build for a Linux ARM64 far node (such as an Ampere server):
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o sc-arm64 .
 ```
 
-Copy `sc-arm64` to the far node as `sc` and restart that process from its
-configuration directory. The repository includes a small local copy of the
-UDP socket dependency in `third_party/u` to select the correct batched-I/O
-syscalls on ARM64. Older builds used amd64 syscall numbers, which could allow
-the UDP handshake to succeed while all streams and status checks stalled.
+The pinned `u v0.1.1` release includes the architecture-specific batched-I/O
+syscall fix for ARM64. Older builds used amd64 syscall numbers, which could
+allow the UDP handshake to succeed on ARM64 while streams and status checks
+stalled. The fix and its `unet/batched_udp_test.go` regression test live in the
+`sad-emu/u` repository. Copy the rebuilt `sc-arm64` to the far node as `sc` and
+restart that process from its configuration directory.
 
 ## Quick start
 
@@ -216,6 +218,67 @@ bridge-wide outbound wire-pacing budget at each endpoint. FEC and
 retransmissions spend from the wire budget, so lossy-path application goodput
 will be below the configured rate. Do not set the rate above the real
 bottleneck: this transport intentionally does not back off.
+
+## Local HTTPS integration test
+
+Build two isolated local `sc` processes and request `https://google.com/`
+through their SOCKS/UDP bridge:
+
+```bash
+./scripts/test_local_https.sh
+```
+
+The test uses available local ports, 1 Mbit/s pacing, and 1,350-byte packets.
+It requires Go, curl, Python 3, and internet access. It follows HTTPS redirects
+and requires HTTP 200, a verified TLS certificate, a nonempty body, and a
+confirmed Google connection in the far process. Both processes are stopped on
+exit. Configurations and logs are retained on failure; set
+`KEEP_TEST_ARTIFACTS=1` to retain them after success too.
+
+To exercise an ARM64 far process on an x86 host, install `qemu-aarch64` and run:
+
+```bash
+FAR_ARCH=arm64 ./scripts/test_local_https.sh
+```
+
+The same test can exercise ProxyChains' remote DNS modes:
+
+```bash
+PROXY_DNS_MODE=thread ./scripts/test_local_https.sh
+PROXY_DNS_MODE=daemon FAR_ARCH=arm64 ./scripts/test_local_https.sh
+```
+
+These modes require `proxychains4`; daemon mode also requires
+`proxychains4-daemon` and `getent`. The test starts and stops its own daemon.
+
+### ProxyChains DNS with Wine
+
+Salmon Cannon accepts SOCKS5 hostnames and resolves them on the far node.
+ProxyChains' `proxy_dns` performs hostname mapping using an in-process thread;
+its [upstream configuration notes](https://github.com/rofl0r/proxychains-ng/blob/master/src/proxychains.conf)
+recommend the separate daemon method for compatibility with complex programs.
+If enabling `proxy_dns` makes Wine hang, try the daemon method in
+[`config/examples/vanilla-proxy.conf`](config/examples/vanilla-proxy.conf).
+
+First, start the mapping daemon in a separate terminal and leave it running:
+
+```bash
+proxychains4-daemon -i 127.0.0.1 -p 1053 -r 224
+```
+
+Then, from the game directory, point ProxyChains at that configuration:
+
+```bash
+proxychains4 -f /path/to/salmon-cannon/config/examples/vanilla-proxy.conf wine VanillaFixes.exe
+```
+
+The example uses the near SOCKS listener at `127.0.0.1:1081`. It replaces
+`proxy_dns` with `proxy_dns_daemon 127.0.0.1:1053`; do not enable both.
+The daemon only shares hostname mappings between client processes; actual DNS
+resolution still happens at the far node when it connects to the hostname.
+Start the daemon first: ProxyChains waits indefinitely if it is absent.
+The Google test validates ProxyChains DNS through the bridge, not Wine/game
+compatibility; the game must also be tried with the chosen mode.
 
 ## Poor-network regression profile
 
