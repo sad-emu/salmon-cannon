@@ -276,7 +276,7 @@ historical `Recieve` misspelling.
 | `SBFarPort` | Near-only remote UDP port to dial. | Copies `SBNearPort` if omitted |
 | `SBNearPort` | Despite its name, the UDP listen port used by the far node. | Copies `SBFarPort` if omitted |
 | `SBFarIp` | Near: remote IP/hostname to dial. Far: optional exact numeric source-IP filter for incoming transport connections. | Empty |
-| `SBStatusCheckFrequency` | Near-only health-check interval; unset/`0` disables checks. | Disabled |
+| `SBStatusCheckFrequency` | Near-only health-check interval; unset/`0` disables checks. A failed five-second probe closes only its status stream, preserving proxied TCP connections; dead-peer cleanup uses `SBIdleTimeout`. | Disabled |
 | `SBIdleTimeout` | How long a silent transport peer is tolerated before dead-peer cleanup. | `60s` |
 
 The far-side `SBFarIp` comparison is an exact comparison against the observed

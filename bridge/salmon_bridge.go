@@ -42,29 +42,36 @@ func NewSalmonBridge(name string, address string, port int, netcfg connections.B
 // =========================================================
 
 func (s *SalmonBridge) StatusCheck() {
-	stream, cleanup, err, conn := s.transport.OpenStream()
+	stream, cleanup, err, _ := s.transport.OpenStream()
 	if err != nil {
 		log.Printf("NEAR: Bridge %s status check connect error: %v", s.BridgeName, err)
 		return
 	}
-	defer stream.Close()
 	defer cleanup()
+	completed := false
+	defer func() {
+		// A failed probe must not tear down unrelated TCP streams. The
+		// transport's IdleTimeout handles dead peers; abandon only this probe.
+		if !completed {
+			stream.CancelWrite(0)
+		}
+		stream.CancelRead(0)
+		stream.Close()
+	}()
 
 	startTime := time.Now()
+	stream.SetDeadline(startTime.Add(5 * time.Second))
 	written, err := stream.Write([]byte{STATUS_HEADER})
 	if err != nil || written != 1 {
 		log.Printf("NEAR: Bridge %s status check write error: %v", s.BridgeName, err)
-		s.transport.CloseConnection(conn)
 		return
 	}
 
 	// Read response
 	buf := make([]byte, 1)
-	stream.SetReadDeadline(time.Now().Add(5 * time.Second))
 	n, err := stream.Read(buf)
 	if err != nil || n != 1 || buf[0] != STATUS_ACK {
 		log.Printf("NEAR: Bridge %s status check read error: %v", s.BridgeName, err)
-		s.transport.CloseConnection(conn)
 		return
 	}
 
@@ -75,9 +82,9 @@ func (s *SalmonBridge) StatusCheck() {
 	written, err = stream.Write([]byte{STATUS_ACK})
 	if err != nil || written != 1 {
 		log.Printf("NEAR: Bridge %s status check final write error: %v", s.BridgeName, err)
-		s.transport.CloseConnection(conn)
 		return
 	}
+	completed = true
 
 	// Listen for the far side to close the stream
 	buf = make([]byte, 1)
@@ -164,6 +171,8 @@ func (s *SalmonBridge) shouldBlockFarOutConn(outHostFull string) bool {
 func (s *SalmonBridge) handleStatusPing(stream *anadromous.Stream) {
 	// Simple status response: number of active connections
 	startTime := time.Now()
+	stream.SetDeadline(startTime.Add(5 * time.Second))
+	defer stream.CancelRead(0)
 	_, err := stream.Write([]byte{STATUS_ACK})
 	if err != nil {
 		log.Printf("FAR: Bridge %s status write response error: %v", s.BridgeName, err)
@@ -171,7 +180,6 @@ func (s *SalmonBridge) handleStatusPing(stream *anadromous.Stream) {
 	}
 	// Read ACK back
 	buf := make([]byte, 1)
-	stream.SetReadDeadline(time.Now().Add(5 * time.Second))
 	n, err := stream.Read(buf)
 	if err != nil || n != 1 || buf[0] != STATUS_ACK {
 		log.Printf("FAR: Bridge %s status read ACK error: %v", s.BridgeName, err)

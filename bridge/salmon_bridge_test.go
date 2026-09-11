@@ -1,14 +1,131 @@
 package bridge
 
 import (
+	"context"
 	"crypto/tls"
+	"io"
 	"net"
 	"net/http"
 	"salmoncannon/connections"
+	"salmoncannon/status"
 	"salmoncannon/utils"
 	"testing"
 	"time"
+
+	"github.com/sad-emu/anadromous"
 )
+
+func TestStatusCheckFailurePreservesConnection(t *testing.T) {
+	for _, failure := range []string{"timeout", "invalid ACK"} {
+		t.Run(failure, func(t *testing.T) {
+			listener, err := anadromous.Listen("127.0.0.1:0", anadromous.WithIdleTimeout(time.Minute))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			name := t.Name()
+			addr, err := net.ResolveUDPAddr("udp", listener.Addr().String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			near := NewSalmonBridge(name, "127.0.0.1", addr.Port,
+				connections.BridgeNetConfig{IdleTimeout: time.Minute}, nil, "", nil, "")
+			serverErrors := make(chan error, 1)
+			go func() {
+				conn, err := listener.Accept(ctx)
+				if err != nil {
+					serverErrors <- err
+					return
+				}
+				for probe := 0; ; {
+					stream, err := conn.AcceptStream(ctx)
+					if err != nil {
+						return
+					}
+					header, err := ReadHeaderType(stream)
+					if err != nil {
+						serverErrors <- err
+						return
+					}
+					if header == CONNECT_HEADER {
+						go func() {
+							defer stream.Close()
+							io.Copy(stream, stream)
+						}()
+						continue
+					}
+					probe++
+					if probe == 1 {
+						if failure == "invalid ACK" {
+							stream.Write([]byte{0xff})
+						}
+						// Keep this probe unanswered until the near side abandons it.
+						go func() {
+							defer stream.Close()
+							io.Copy(io.Discard, stream)
+						}()
+						continue
+					}
+					near.handleStatusPing(stream)
+					stream.Close()
+				}
+			}()
+
+			data, cleanup, err, originalConn := near.transport.OpenStream()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer near.transport.CloseConnection(originalConn)
+			defer cleanup()
+			if _, err := data.Write([]byte{CONNECT_HEADER}); err != nil {
+				t.Fatal(err)
+			}
+			echo := func() {
+				t.Helper()
+				data.SetDeadline(time.Now().Add(2 * time.Second))
+				if _, err := data.Write([]byte("login")); err != nil {
+					t.Fatalf("data stream write: %v", err)
+				}
+				buf := make([]byte, 5)
+				if _, err := io.ReadFull(data, buf); err != nil {
+					t.Fatalf("data stream read: %v", err)
+				}
+				if string(buf) != "login" {
+					t.Fatalf("unexpected echo: %q", buf)
+				}
+				data.SetDeadline(time.Time{})
+			}
+			echo()
+			near.StatusCheck()
+			// An idle application stream must resume after a failed status probe.
+			echo()
+			if got := status.GlobalConnMonitorRef.GetStreamCount(name); got != 1 {
+				t.Fatalf("failed probe leaked stream count: got %d, want 1", got)
+			}
+			near.StatusCheck()
+			if !status.GlobalConnMonitorRef.GetStatus(name) {
+				t.Fatal("subsequent status check did not recover")
+			}
+			echo()
+			stream, done, err, currentConn := near.transport.OpenStream()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer done()
+			defer stream.Close()
+			if currentConn != originalConn {
+				t.Fatal("status check replaced the shared connection")
+			}
+			select {
+			case err := <-serverErrors:
+				t.Fatalf("server: %v", err)
+			default:
+			}
+		})
+	}
+}
 
 func TestSalmonBridge_HTTPProxyEndToEnd(t *testing.T) {
 	// Start a simple HTTP server
