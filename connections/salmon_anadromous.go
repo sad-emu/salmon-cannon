@@ -282,12 +282,17 @@ func (s *SalmonAnadromous) NewFarListen(handleIncomingStream func(*anadromous.St
 		}
 
 		go func(c *anadromous.Connection) {
+			acceptedAt := time.Now()
+			acceptedStreams := 0
+			log.Printf("FAR: Bridge %s accepted transport from %s", s.BridgeName, c.RemoteAddr())
 			for {
 				stream, err := c.AcceptStream(context.Background())
 				if err != nil {
-					log.Printf("FAR: Bridge %s AcceptStream closed: %v", s.BridgeName, err)
+					log.Printf("FAR: Bridge %s AcceptStream closed: %v (peer %s, lifetime %s, accepted streams %d, last transport ping RTT %d ms; -1 means no completed ping)",
+						s.BridgeName, err, c.RemoteAddr(), time.Since(acceptedAt).Round(time.Millisecond), acceptedStreams, c.GetRtt())
 					return
 				}
+				acceptedStreams++
 				status.GlobalConnMonitorRef.AddStream(s.BridgeName)
 				go handleIncomingStream(stream)
 			}

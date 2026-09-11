@@ -430,7 +430,11 @@ func TestSalmonBridge_FailFarBridgeIpCheck(t *testing.T) {
 		"", make([]string, 0), "nil")
 
 	// Open a connection from near to the HTTP server
-	conn, _ := nearBridge.NewNearConn("127.0.0.1", 1124)
+	conn, err := nearBridge.NewNearConn("127.0.0.1", 1124)
+	if err != nil {
+		// The far-side rejection may arrive before NewNearConn returns.
+		return
+	}
 
 	// Wait for conn to fail as the check is AFTER connect
 	time.Sleep(700 * time.Millisecond)

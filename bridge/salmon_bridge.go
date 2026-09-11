@@ -42,7 +42,7 @@ func NewSalmonBridge(name string, address string, port int, netcfg connections.B
 // =========================================================
 
 func (s *SalmonBridge) StatusCheck() {
-	stream, cleanup, err, _ := s.transport.OpenStream()
+	stream, cleanup, err, conn := s.transport.OpenStream()
 	if err != nil {
 		log.Printf("NEAR: Bridge %s status check connect error: %v", s.BridgeName, err)
 		return
@@ -71,7 +71,8 @@ func (s *SalmonBridge) StatusCheck() {
 	buf := make([]byte, 1)
 	n, err := stream.Read(buf)
 	if err != nil || n != 1 || buf[0] != STATUS_ACK {
-		log.Printf("NEAR: Bridge %s status check read error: %v", s.BridgeName, err)
+		log.Printf("NEAR: Bridge %s status check read error: %v (stream %d, read %d bytes, response 0x%02x, last transport ping RTT %d ms; -1 means no completed ping)",
+			s.BridgeName, err, stream.StreamID(), n, buf[0], conn.GetRtt())
 		return
 	}
 
@@ -247,6 +248,7 @@ func (s *SalmonBridge) handleIncomingStream(stream *anadromous.Stream) {
 	}
 
 	// 3) Dial target TCP.
+	log.Printf("FAR: Bridge %s stream %d dialing TCP target %s", s.BridgeName, stream.StreamID(), target)
 	dst, err := net.Dial("tcp", target)
 	if err != nil {
 		log.Printf("FAR: dial on bridge %s failed %s error: %v", s.BridgeName, target, err)
@@ -254,6 +256,7 @@ func (s *SalmonBridge) handleIncomingStream(stream *anadromous.Stream) {
 		stream.Close()
 		return
 	}
+	log.Printf("FAR: Bridge %s stream %d connected to TCP target %s", s.BridgeName, stream.StreamID(), target)
 	// Ensure we close both sides.
 	defer func() {
 		dst.Close()
