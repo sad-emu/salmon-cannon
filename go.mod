@@ -15,4 +15,6 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
 
-replace github.com/tredeske/u => github.com/sad-emu/u v0.0.0-20250421110454-ea06120e3caa
+// The pinned upstream fork hard-codes amd64 UDP syscall numbers. Keep the
+// architecture-aware fix local until it is available in a released dependency.
+replace github.com/tredeske/u => ./third_party/u

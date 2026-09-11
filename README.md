@@ -60,6 +60,18 @@ go build -o salmon-rate ./ratetest
 
 `./build-sc.sh` is a short wrapper around the first command.
 
+To build for a Linux ARM64 far node (such as an Ampere server):
+
+```bash
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o sc-arm64 .
+```
+
+Copy `sc-arm64` to the far node as `sc` and restart that process from its
+configuration directory. The repository includes a small local copy of the
+UDP socket dependency in `third_party/u` to select the correct batched-I/O
+syscalls on ARM64. Older builds used amd64 syscall numbers, which could allow
+the UDP handshake to succeed while all streams and status checks stalled.
+
 ## Quick start
 
 The executable always reads `./scconfig.yml` from its current working
